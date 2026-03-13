@@ -1,0 +1,219 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600&family=DM+Sans:wght@300;400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ── Neutral palette ─────────────────────────────── */
+    --background: 0.985 0.002 90;       /* near-white warm paper */
+    --foreground: 0.18 0.01 250;        /* deep charcoal */
+    --card: 1 0 0;                       /* pure white */
+    --card-foreground: 0.18 0.01 250;
+    --popover: 1 0 0;
+    --popover-foreground: 0.18 0.01 250;
+
+    /* ── Primary ─────────────────────────────────────── */
+    --primary: 0.32 0.03 250;           /* dark slate */
+    --primary-foreground: 0.98 0.002 90;
+
+    /* ── Secondary / muted ───────────────────────────── */
+    --secondary: 0.94 0.005 90;         /* light gray */
+    --secondary-foreground: 0.32 0.03 250;
+    --muted: 0.94 0.005 90;
+    --muted-foreground: 0.55 0.015 250;
+
+    /* ── Accent (today highlight – warm amber) ────────── */
+    --accent: 0.95 0.06 80;             /* soft amber tint */
+    --accent-foreground: 0.32 0.04 60;
+
+    /* ── Checked cell (sage green) ───────────────────── */
+    --checked-bg: 0.92 0.06 155;        /* sage green tint */
+    --checked-mark: 0.52 0.13 155;      /* deeper sage */
+
+    /* ── Destructive ─────────────────────────────────── */
+    --destructive: 0.55 0.22 27;
+    --destructive-foreground: 0.98 0.002 90;
+
+    /* ── Borders / inputs ────────────────────────────── */
+    --border: 0.88 0.008 250;
+    --input: 0.88 0.008 250;
+    --ring: 0.32 0.03 250;
+
+    /* ── Today column specific ───────────────────────── */
+    --today-header: 0.92 0.08 75;
+    --today-cell: 0.97 0.04 80;
+
+    /* ── Radius ──────────────────────────────────────── */
+    --radius: 0.375rem;
+
+    /* ── Charts ─────────────────────────────────────── */
+    --chart-1: 0.52 0.13 155;
+    --chart-2: 0.55 0.12 200;
+    --chart-3: 0.55 0.15 60;
+    --chart-4: 0.55 0.18 27;
+    --chart-5: 0.52 0.1 290;
+
+    /* ── Sidebar ─────────────────────────────────────── */
+    --sidebar: 0.97 0.003 90;
+    --sidebar-foreground: 0.18 0.01 250;
+    --sidebar-primary: 0.32 0.03 250;
+    --sidebar-primary-foreground: 0.98 0.002 90;
+    --sidebar-accent: 0.94 0.005 90;
+    --sidebar-accent-foreground: 0.32 0.03 250;
+    --sidebar-border: 0.88 0.008 250;
+    --sidebar-ring: 0.32 0.03 250;
+  }
+
+  .dark {
+    --background: 0.14 0.01 250;
+    --foreground: 0.92 0.005 90;
+    --card: 0.18 0.012 250;
+    --card-foreground: 0.92 0.005 90;
+    --popover: 0.18 0.012 250;
+    --popover-foreground: 0.92 0.005 90;
+
+    --primary: 0.88 0.012 90;
+    --primary-foreground: 0.18 0.01 250;
+
+    --secondary: 0.22 0.015 250;
+    --secondary-foreground: 0.88 0.012 90;
+    --muted: 0.22 0.015 250;
+    --muted-foreground: 0.6 0.015 250;
+
+    --accent: 0.25 0.07 75;
+    --accent-foreground: 0.9 0.06 80;
+
+    --checked-bg: 0.22 0.07 155;
+    --checked-mark: 0.65 0.15 155;
+
+    --destructive: 0.55 0.22 27;
+    --destructive-foreground: 0.98 0.002 90;
+
+    --border: 0.28 0.015 250;
+    --input: 0.28 0.015 250;
+    --ring: 0.65 0.012 90;
+
+    --today-header: 0.24 0.08 75;
+    --today-cell: 0.19 0.05 75;
+
+    --chart-1: 0.65 0.15 155;
+    --chart-2: 0.65 0.12 200;
+    --chart-3: 0.65 0.15 60;
+    --chart-4: 0.65 0.18 27;
+    --chart-5: 0.65 0.1 290;
+
+    --sidebar: 0.16 0.01 250;
+    --sidebar-foreground: 0.92 0.005 90;
+    --sidebar-primary: 0.88 0.012 90;
+    --sidebar-primary-foreground: 0.18 0.01 250;
+    --sidebar-accent: 0.22 0.015 250;
+    --sidebar-accent-foreground: 0.88 0.012 90;
+    --sidebar-border: 0.28 0.015 250;
+    --sidebar-ring: 0.65 0.012 90;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'DM Sans', sans-serif;
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Bricolage Grotesque', sans-serif;
+  }
+}
+
+/* ── Grid table styles ───────────────────────────────── */
+.habit-grid {
+  display: grid;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.habit-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.habit-table th,
+.habit-table td {
+  border: 1px solid oklch(var(--border));
+  vertical-align: middle;
+}
+
+.sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background-color: oklch(var(--background));
+}
+
+.dark .sticky-col {
+  background-color: oklch(var(--background));
+}
+
+.today-col-header {
+  background-color: oklch(var(--today-header)) !important;
+}
+
+.today-col-cell {
+  background-color: oklch(var(--today-cell)) !important;
+}
+
+.checked-cell {
+  background-color: oklch(var(--checked-bg));
+}
+
+/* ── Checkbox animation ─────────────────────────────── */
+.habit-checkbox {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1.5px solid oklch(var(--border));
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.12s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.habit-checkbox:checked {
+  background-color: oklch(var(--checked-mark));
+  border-color: oklch(var(--checked-mark));
+}
+
+.habit-checkbox:checked::after {
+  content: '';
+  display: block;
+  width: 5px;
+  height: 9px;
+  border: 2px solid white;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg) translateY(-1px);
+}
+
+.habit-checkbox:hover:not(:checked) {
+  border-color: oklch(var(--checked-mark));
+  background-color: oklch(var(--checked-bg) / 0.4);
+}
+
+.habit-checkbox:active {
+  transform: scale(0.88);
+}
+
+.habit-checkbox:focus-visible {
+  outline: 2px solid oklch(var(--ring));
+  outline-offset: 2px;
+}
