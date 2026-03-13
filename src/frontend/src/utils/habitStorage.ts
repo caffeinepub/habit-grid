@@ -44,6 +44,7 @@ export interface StoredTask {
 export interface HabitData {
   tasks: StoredTask[];
   completions: Record<string, boolean>; // "taskId|YYYY-MM-DD" -> true
+  messages: Record<string, string>; // "YYYY-MM-DD" -> message text
 }
 
 function dataKey(username: string): string {
@@ -52,11 +53,14 @@ function dataKey(username: string): string {
 
 export function getData(username: string): HabitData {
   const raw = localStorage.getItem(dataKey(username));
-  if (!raw) return { tasks: [], completions: {} };
+  if (!raw) return { tasks: [], completions: {}, messages: {} };
   try {
-    return JSON.parse(raw) as HabitData;
+    const parsed = JSON.parse(raw) as HabitData;
+    // Migrate old data that may not have messages
+    if (!parsed.messages) parsed.messages = {};
+    return parsed;
   } catch {
-    return { tasks: [], completions: {} };
+    return { tasks: [], completions: {}, messages: {} };
   }
 }
 

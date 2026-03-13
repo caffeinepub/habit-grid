@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  BookOpen,
   CalendarDays,
   Download,
   LogOut,
@@ -21,6 +22,7 @@ import {
   saveData,
 } from "../utils/habitStorage";
 import CalendarView from "./CalendarView";
+import MessageOfDaySlide from "./MessageOfDaySlide";
 
 interface GridPageProps {
   username: string;
@@ -116,6 +118,7 @@ export default function GridPage({
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [motdOpen, setMotdOpen] = useState(false);
   const [todayKey, setTodayKey] = useState(() => dateKey(new Date()));
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -235,7 +238,16 @@ export default function GridPage({
     toast.success("Data exported!");
   }
 
+  function handleSaveMessage(dk: string, text: string) {
+    persist((prev) => ({
+      ...prev,
+      messages: { ...prev.messages, [dk]: text },
+    }));
+    toast.success("Message saved");
+  }
+
   const tasks = activeTasks(data);
+  const todayHasMessage = !!data.messages?.[todayKey]?.trim();
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -359,6 +371,24 @@ export default function GridPage({
               <Moon className="w-3.5 h-3.5" />
             )}
           </Button>
+
+          {/* Message of the Day button */}
+          <button
+            data-ocid="grid.motd_open_modal_button"
+            type="button"
+            onClick={() => setMotdOpen(true)}
+            title="Message of the Day"
+            className={`relative w-9 h-9 rounded-full border flex items-center justify-center transition-colors flex-shrink-0 ${
+              todayHasMessage
+                ? "bg-foreground/10 border-foreground/30 hover:bg-foreground/20"
+                : "bg-foreground/8 border-border hover:bg-foreground/15"
+            }`}
+          >
+            <BookOpen className="w-4 h-4 text-foreground" />
+            {todayHasMessage && (
+              <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-accent-foreground" />
+            )}
+          </button>
 
           {/* Calendar circular button */}
           <button
@@ -664,6 +694,15 @@ export default function GridPage({
         open={calendarOpen}
         onClose={() => setCalendarOpen(false)}
         data={data}
+        todayKey={todayKey}
+      />
+
+      {/* Message of the Day slide */}
+      <MessageOfDaySlide
+        open={motdOpen}
+        onClose={() => setMotdOpen(false)}
+        messages={data.messages ?? {}}
+        onSave={handleSaveMessage}
         todayKey={todayKey}
       />
     </div>
