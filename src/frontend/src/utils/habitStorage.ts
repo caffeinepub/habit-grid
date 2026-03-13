@@ -43,7 +43,8 @@ export interface StoredTask {
 
 export interface HabitData {
   tasks: StoredTask[];
-  completions: Record<string, boolean>; // "taskId|YYYY-MM-DD" -> true
+  completions: Record<string, boolean>; // "taskId|YYYY-MM-DD" -> true (checked)
+  blocked: Record<string, boolean>; // "taskId|YYYY-MM-DD" -> true (red cross)
   messages: Record<string, string>; // "YYYY-MM-DD" -> message text
 }
 
@@ -53,14 +54,14 @@ function dataKey(username: string): string {
 
 export function getData(username: string): HabitData {
   const raw = localStorage.getItem(dataKey(username));
-  if (!raw) return { tasks: [], completions: {}, messages: {} };
+  if (!raw) return { tasks: [], completions: {}, blocked: {}, messages: {} };
   try {
     const parsed = JSON.parse(raw) as HabitData;
-    // Migrate old data that may not have messages
     if (!parsed.messages) parsed.messages = {};
+    if (!parsed.blocked) parsed.blocked = {};
     return parsed;
   } catch {
-    return { tasks: [], completions: {}, messages: {} };
+    return { tasks: [], completions: {}, blocked: {}, messages: {} };
   }
 }
 
@@ -70,7 +71,10 @@ export function saveData(username: string, data: HabitData): void {
 
 // ── Helpers ───────────────────────────────────────────────────────
 export function dateKey(d: Date): string {
-  return d.toISOString().split("T")[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 /** Tasks that are active (not deleted) */

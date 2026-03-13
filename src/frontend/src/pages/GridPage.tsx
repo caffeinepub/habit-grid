@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import {
   BookOpen,
   CalendarDays,
+  Check,
   Download,
   LogOut,
   Moon,
@@ -10,6 +11,7 @@ import {
   Sun,
   Trash2,
   Undo2,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -31,10 +33,13 @@ interface GridPageProps {
   onLogout: () => void;
 }
 
+// Three possible cell states
+type CellState = "unchecked" | "checked" | "blocked";
+
 interface UndoEntry {
   taskId: string;
   dk: string;
-  previousValue: boolean;
+  previousState: CellState;
 }
 
 // Generate all 365 days of 2026 (Jan 1 – Dec 31)
@@ -123,6 +128,8 @@ export default function GridPage({
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const todayColRef = useRef<HTMLTableCellElement>(null);
+  // Track last tap time per cell key for double-tap detection
+  const lastTapRef = useRef<Record<string, number>>({});
 
   // Persist whenever data changes
   useEffect(() => {
@@ -139,7 +146,6 @@ export default function GridPage({
         block: "nearest",
       });
     };
-    // Small delay to ensure DOM is ready
     const timer = setTimeout(scroll, 100);
     return () => clearTimeout(timer);
   }, [todayKey]);
@@ -158,6 +164,12 @@ export default function GridPage({
     [],
   );
 
+  function getCellState(key: string): CellState {
+    if (data.blocked[key]) return "blocked";
+    if (data.completions[key]) return "checked";
+    return "unchecked";
+  }
+
   function persist(updater: (prev: HabitData) => HabitData) {
     setData((prev) => {
       const next = updater(prev);
@@ -166,17 +178,53 @@ export default function GridPage({
     });
   }
 
-  function toggleCompletion(taskId: string, dk: string) {
+  /**
+   * Handle a cell tap.
+   * - Double-tap (two taps within 350ms): set to "blocked" (red cross) regardless of current state.
+   * - Single tap on "blocked": set to "checked".
+   * - Single tap on "checked": set to "unchecked".
+   * - Single tap on "unchecked": set to "checked".
+   */
+  function handleCellTap(taskId: string, dk: string) {
     const key = compKey(taskId, dk);
-    const wasChecked = !!data.completions[key];
-    setUndoStack((prev) => [
-      ...prev,
-      { taskId, dk, previousValue: wasChecked },
-    ]);
-    persist((prev) => ({
-      ...prev,
-      completions: { ...prev.completions, [key]: !wasChecked },
-    }));
+    const now = Date.now();
+    const last = lastTapRef.current[key] ?? 0;
+    const isDoubleTap = now - last < 350;
+    lastTapRef.current[key] = now;
+
+    const prevState = getCellState(key);
+
+    setUndoStack((prev) => [...prev, { taskId, dk, previousState: prevState }]);
+
+    if (isDoubleTap) {
+      // Double-tap: always go to blocked (red cross)
+      persist((prev) => ({
+        ...prev,
+        completions: { ...prev.completions, [key]: false },
+        blocked: { ...prev.blocked, [key]: true },
+      }));
+    } else if (prevState === "blocked") {
+      // Single-tap on blocked: go to checked
+      persist((prev) => ({
+        ...prev,
+        completions: { ...prev.completions, [key]: true },
+        blocked: { ...prev.blocked, [key]: false },
+      }));
+    } else if (prevState === "checked") {
+      // Single-tap on checked: go to unchecked
+      persist((prev) => ({
+        ...prev,
+        completions: { ...prev.completions, [key]: false },
+        blocked: { ...prev.blocked, [key]: false },
+      }));
+    } else {
+      // Single-tap on unchecked: go to checked
+      persist((prev) => ({
+        ...prev,
+        completions: { ...prev.completions, [key]: true },
+        blocked: { ...prev.blocked, [key]: false },
+      }));
+    }
   }
 
   function handleUndo() {
@@ -186,7 +234,14 @@ export default function GridPage({
     const key = compKey(last.taskId, last.dk);
     persist((prev) => ({
       ...prev,
-      completions: { ...prev.completions, [key]: last.previousValue },
+      completions: {
+        ...prev.completions,
+        [key]: last.previousState === "checked",
+      },
+      blocked: {
+        ...prev.blocked,
+        [key]: last.previousState === "blocked",
+      },
     }));
   }
 
@@ -202,7 +257,6 @@ export default function GridPage({
   }
 
   function handleDeleteTask(taskId: string) {
-    // Soft-delete: mark deletedAt, preserve completions
     const deletedAt = Date.now();
     persist((prev) => ({
       ...prev,
@@ -588,7 +642,6 @@ export default function GridPage({
               </thead>
               <tbody>
                 {tasks.map((task, taskIdx) => {
-                  // Determine the task's start date key
                   const taskStartKey = dateKey(new Date(task.createdAt));
                   return (
                     <tr
@@ -642,25 +695,49 @@ export default function GridPage({
                         const isToday = dk === todayKey;
                         const isBefore = dk < taskStartKey;
                         const key = compKey(task.id, dk);
-                        const checked = !!data.completions[key];
+                        const cellState = getCellState(key);
                         return (
                           <td
                             key={dk}
-                            className={`text-center border border-border p-0 ${isToday ? "today-col-cell" : ""} ${checked ? "checked-cell" : ""} ${isBefore ? "opacity-30 bg-muted/30" : ""}`}
+                            className={`text-center border border-border p-0 ${
+                              isToday ? "today-col-cell" : ""
+                            } ${
+                              cellState === "checked" ? "checked-cell" : ""
+                            } ${isBefore ? "opacity-30 bg-muted/30" : ""}`}
                             style={{ minWidth: 44, width: 44, height: 40 }}
                           >
                             {isBefore ? (
                               <div className="w-full h-full" />
                             ) : (
-                              <div className="flex items-center justify-center h-full">
-                                <input
-                                  type="checkbox"
-                                  className="habit-checkbox"
-                                  checked={checked}
-                                  onChange={() => toggleCompletion(task.id, dk)}
-                                  aria-label={`${task.name} on ${dk}`}
-                                />
-                              </div>
+                              <button
+                                type="button"
+                                className={`w-full h-full flex items-center justify-center transition-colors select-none ${
+                                  cellState === "checked"
+                                    ? "text-green-500 hover:text-green-600"
+                                    : cellState === "blocked"
+                                      ? "text-red-500 hover:text-red-600"
+                                      : "text-transparent hover:text-muted-foreground/30"
+                                }`}
+                                onClick={() => handleCellTap(task.id, dk)}
+                                aria-label={`${task.name} on ${dk}: ${
+                                  cellState === "checked"
+                                    ? "done"
+                                    : cellState === "blocked"
+                                      ? "blocked"
+                                      : "not done"
+                                }`}
+                                title="Tap to check/uncheck · Double-tap to mark as blocked"
+                              >
+                                {cellState === "checked" && (
+                                  <Check className="w-4 h-4 stroke-[2.5]" />
+                                )}
+                                {cellState === "blocked" && (
+                                  <X className="w-4 h-4 stroke-[2.5]" />
+                                )}
+                                {cellState === "unchecked" && (
+                                  <Check className="w-4 h-4 stroke-[2]" />
+                                )}
+                              </button>
                             )}
                           </td>
                         );
