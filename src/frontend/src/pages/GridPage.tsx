@@ -1,8 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  CalendarDays,
   Download,
-  Loader2,
   LogOut,
   Moon,
   Plus,
@@ -12,40 +12,43 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { Task } from "../backend.d";
-import { useActor } from "../hooks/useActor";
-import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import {
+  type HabitData,
+  type StoredTask,
+  activeTasks,
+  dateKey,
+  getData,
+  saveData,
+} from "../utils/habitStorage";
+import CalendarView from "./CalendarView";
 
 interface GridPageProps {
+  username: string;
   darkMode: boolean;
   onToggleDark: () => void;
+  onLogout: () => void;
 }
 
 interface UndoEntry {
   taskId: string;
-  dateKey: string;
+  dk: string;
   previousValue: boolean;
 }
 
-// Generate date key in YYYY-MM-DD format
-function dateKey(d: Date): string {
-  return d.toISOString().split("T")[0];
-}
-
-// Generate the columns: 30 past days + today + 7 future days
+// Generate all 365 days of 2026 (Jan 1 – Dec 31)
 function generateDateColumns(): Date[] {
   const cols: Date[] = [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  for (let i = -30; i <= 7; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    cols.push(d);
+  const start = new Date(2026, 0, 1);
+  const end = new Date(2026, 11, 31);
+  const cur = new Date(start);
+  while (cur <= end) {
+    cols.push(new Date(cur));
+    cur.setDate(cur.getDate() + 1);
   }
   return cols;
 }
 
-const DAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_ABBR = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const MONTH_ABBR = [
   "Jan",
   "Feb",
@@ -60,176 +63,166 @@ const MONTH_ABBR = [
   "Nov",
   "Dec",
 ];
-const TODAY_KEY = dateKey(new Date());
+const MONTH_FULL = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
 
-export default function GridPage({ darkMode, onToggleDark }: GridPageProps) {
-  const { actor } = useActor();
-  const { clear } = useInternetIdentity();
+const dates = generateDateColumns();
 
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [completions, setCompletions] = useState<Set<string>>(new Set());
+// Pre-compute month spans for the separator header row
+interface MonthSpan {
+  month: number;
+  label: string;
+  colSpan: number;
+  startIndex: number;
+}
+function computeMonthSpans(): MonthSpan[] {
+  const spans: MonthSpan[] = [];
+  let cur: MonthSpan | null = null;
+  dates.forEach((d, i) => {
+    const m = d.getMonth();
+    if (!cur || cur.month !== m) {
+      if (cur) spans.push(cur);
+      cur = { month: m, label: MONTH_FULL[m], colSpan: 1, startIndex: i };
+    } else {
+      cur.colSpan++;
+    }
+  });
+  if (cur) spans.push(cur);
+  return spans;
+}
+const MONTH_SPANS = computeMonthSpans();
+
+export default function GridPage({
+  username,
+  darkMode,
+  onToggleDark,
+  onLogout,
+}: GridPageProps) {
+  const [data, setData] = useState<HabitData>(() => getData(username));
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [newTaskName, setNewTaskName] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
-  const [addingTask, setAddingTask] = useState(false);
-  const [userName, setUserName] = useState("");
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [todayKey, setTodayKey] = useState(() => dateKey(new Date()));
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const todayColRef = useRef<HTMLTableCellElement>(null);
-  const dates = generateDateColumns();
 
-  // Load data on mount
+  // Persist whenever data changes
   useEffect(() => {
-    if (!actor) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const [taskList, completionList, profile] = await Promise.all([
-          actor.getTasks(),
-          actor.getCompletions(),
-          actor.getCallerUserProfile(),
-        ]);
-        if (cancelled) return;
-        setTasks(
-          taskList.slice().sort((a, b) => Number(a.createdAt - b.createdAt)),
-        );
-        const set = new Set(completionList.map(([tid, dk]) => `${tid}|${dk}`));
-        setCompletions(set);
-        if (profile) setUserName(profile.name);
-      } catch {
-        toast.error("Failed to load data");
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
+    saveData(username, data);
+  }, [data, username]);
+
+  // Scroll to today on mount and when todayKey changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: todayKey triggers re-scroll when day changes
+  useEffect(() => {
+    const scroll = () => {
+      todayColRef.current?.scrollIntoView({
+        behavior: "smooth",
+        inline: "center",
+        block: "nearest",
+      });
     };
-  }, [actor]);
+    // Small delay to ensure DOM is ready
+    const timer = setTimeout(scroll, 100);
+    return () => clearTimeout(timer);
+  }, [todayKey]);
 
-  // Scroll to today on load
+  // Auto-update todayKey at midnight
   useEffect(() => {
-    if (!isLoading && todayColRef.current && scrollRef.current) {
-      const container = scrollRef.current;
-      const cell = todayColRef.current;
-      const cellLeft = cell.offsetLeft;
-      const containerWidth = container.clientWidth;
-      const stickyWidth = 180;
-      container.scrollLeft = cellLeft - stickyWidth - containerWidth / 3;
-    }
-  }, [isLoading]);
+    const interval = setInterval(() => {
+      const cur = dateKey(new Date());
+      setTodayKey((prev) => (prev !== cur ? cur : prev));
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const compKey = useCallback(
     (taskId: string, dk: string) => `${taskId}|${dk}`,
     [],
   );
 
+  function persist(updater: (prev: HabitData) => HabitData) {
+    setData((prev) => {
+      const next = updater(prev);
+      saveData(username, next);
+      return next;
+    });
+  }
+
   function toggleCompletion(taskId: string, dk: string) {
     const key = compKey(taskId, dk);
-    const wasChecked = completions.has(key);
-    const next = new Set(completions);
-    if (wasChecked) next.delete(key);
-    else next.add(key);
-    setCompletions(next);
+    const wasChecked = !!data.completions[key];
     setUndoStack((prev) => [
       ...prev,
-      { taskId, dateKey: dk, previousValue: wasChecked },
+      { taskId, dk, previousValue: wasChecked },
     ]);
-    void actor?.setCompletion(taskId, dk, !wasChecked).catch(() => {
-      // Rollback
-      setCompletions(completions);
-      toast.error("Failed to save");
-    });
+    persist((prev) => ({
+      ...prev,
+      completions: { ...prev.completions, [key]: !wasChecked },
+    }));
   }
 
   function handleUndo() {
     if (undoStack.length === 0) return;
     const last = undoStack[undoStack.length - 1];
     setUndoStack((prev) => prev.slice(0, -1));
-    const key = compKey(last.taskId, last.dateKey);
-    const next = new Set(completions);
-    if (last.previousValue) next.add(key);
-    else next.delete(key);
-    setCompletions(next);
-    void actor
-      ?.setCompletion(last.taskId, last.dateKey, last.previousValue)
-      .catch(() => {
-        toast.error("Failed to undo");
-      });
+    const key = compKey(last.taskId, last.dk);
+    persist((prev) => ({
+      ...prev,
+      completions: { ...prev.completions, [key]: last.previousValue },
+    }));
   }
 
-  async function handleAddTask() {
+  function handleAddTask() {
     const name = newTaskName.trim();
-    if (!name || !actor) return;
-    setAddingTask(true);
+    if (!name) return;
     const id = crypto.randomUUID();
-    const createdAt = BigInt(Date.now());
-    const newTask: Task = { id, name, createdAt };
-    setTasks((prev) => [...prev, newTask]);
+    const createdAt = Date.now();
+    const newTask: StoredTask = { id, name, createdAt };
+    persist((prev) => ({ ...prev, tasks: [...prev.tasks, newTask] }));
     setNewTaskName("");
-    try {
-      await actor.addTask(id, name, createdAt);
-    } catch {
-      setTasks((prev) => prev.filter((t) => t.id !== id));
-      toast.error("Failed to add task");
-    } finally {
-      setAddingTask(false);
-    }
+    toast.success("Task added");
   }
 
-  async function handleDeleteTask(taskId: string) {
-    if (!actor) return;
-    const prev = tasks;
-    setTasks((t) => t.filter((x) => x.id !== taskId));
-    setCompletions((c) => {
-      const next = new Set(c);
-      for (const k of next) {
-        if (k.startsWith(`${taskId}|`)) next.delete(k);
-      }
-      return next;
-    });
-    try {
-      await actor.deleteTask(taskId);
-    } catch {
-      setTasks(prev);
-      toast.error("Failed to delete task");
-    }
+  function handleDeleteTask(taskId: string) {
+    // Soft-delete: mark deletedAt, preserve completions
+    const deletedAt = Date.now();
+    persist((prev) => ({
+      ...prev,
+      tasks: prev.tasks.map((t) => (t.id === taskId ? { ...t, deletedAt } : t)),
+    }));
   }
 
-  function startEditing(task: Task) {
+  function startEditing(task: StoredTask) {
     setEditingTaskId(task.id);
     setEditingName(task.name);
   }
 
-  async function commitRename(taskId: string) {
+  function commitRename(taskId: string) {
     const name = editingName.trim();
     setEditingTaskId(null);
-    if (!name || !actor) return;
-    const prev = tasks;
-    setTasks((ts) => ts.map((t) => (t.id === taskId ? { ...t, name } : t)));
-    try {
-      await actor.renameTask(taskId, name);
-    } catch {
-      setTasks(prev);
-      toast.error("Failed to rename task");
-    }
+    if (!name) return;
+    persist((prev) => ({
+      ...prev,
+      tasks: prev.tasks.map((t) => (t.id === taskId ? { ...t, name } : t)),
+    }));
   }
 
   function handleExport() {
-    const data = {
-      exportedAt: new Date().toISOString(),
-      tasks: tasks.map((t) => ({
-        id: t.id,
-        name: t.name,
-        createdAt: t.createdAt.toString(),
-      })),
-      completions: [...completions].map((k) => {
-        const [taskId, date] = k.split("|");
-        return { taskId, date };
-      }),
-    };
     const blob = new Blob([JSON.stringify(data, null, 2)], {
       type: "application/json",
     });
@@ -242,26 +235,13 @@ export default function GridPage({ darkMode, onToggleDark }: GridPageProps) {
     toast.success("Data exported!");
   }
 
-  function handleLogout() {
-    clear();
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-7 h-7 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading your habits…</p>
-        </div>
-      </div>
-    );
-  }
+  const tasks = activeTasks(data);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Top bar */}
       <header className="sticky top-0 z-20 bg-background border-b border-border">
-        <div className="max-w-full px-4 h-14 flex items-center gap-3">
+        <div className="max-w-full px-4 h-14 flex items-center gap-2">
           {/* Brand */}
           <div className="flex items-center gap-2 mr-auto">
             <div className="w-7 h-7 rounded-lg bg-foreground flex items-center justify-center flex-shrink-0">
@@ -330,21 +310,18 @@ export default function GridPage({ darkMode, onToggleDark }: GridPageProps) {
             <span className="font-display font-600 text-base text-foreground hidden sm:block">
               Habit Grid
             </span>
-            {userName && (
-              <span className="text-xs text-muted-foreground hidden sm:block">
-                · {userName}
-              </span>
-            )}
+            <span className="text-xs text-muted-foreground hidden sm:block">
+              · {username}
+            </span>
           </div>
 
-          {/* Actions */}
           <Button
             data-ocid="grid.undo_button"
             variant="ghost"
             size="sm"
             onClick={handleUndo}
             disabled={undoStack.length === 0}
-            title="Undo last change"
+            title="Undo"
             className="h-8 px-2 gap-1.5 text-xs"
           >
             <Undo2 className="w-3.5 h-3.5" />
@@ -361,7 +338,7 @@ export default function GridPage({ darkMode, onToggleDark }: GridPageProps) {
             variant="ghost"
             size="sm"
             onClick={handleExport}
-            title="Export to JSON"
+            title="Export"
             className="h-8 px-2 gap-1.5 text-xs"
           >
             <Download className="w-3.5 h-3.5" />
@@ -383,11 +360,22 @@ export default function GridPage({ darkMode, onToggleDark }: GridPageProps) {
             )}
           </Button>
 
+          {/* Calendar circular button */}
+          <button
+            data-ocid="grid.calendar_open_modal_button"
+            type="button"
+            onClick={() => setCalendarOpen(true)}
+            title="Calendar overview"
+            className="w-9 h-9 rounded-full bg-foreground/8 hover:bg-foreground/15 border border-border flex items-center justify-center transition-colors flex-shrink-0"
+          >
+            <CalendarDays className="w-4 h-4 text-foreground" />
+          </button>
+
           <Button
             data-ocid="grid.logout_button"
             variant="ghost"
             size="sm"
-            onClick={handleLogout}
+            onClick={onLogout}
             title="Log out"
             className="h-8 px-2 gap-1.5 text-xs text-muted-foreground"
           >
@@ -403,7 +391,7 @@ export default function GridPage({ darkMode, onToggleDark }: GridPageProps) {
           className="flex gap-2 max-w-md"
           onSubmit={(e) => {
             e.preventDefault();
-            void handleAddTask();
+            handleAddTask();
           }}
         >
           <Input
@@ -418,14 +406,10 @@ export default function GridPage({ darkMode, onToggleDark }: GridPageProps) {
             data-ocid="grid.add_task_button"
             type="submit"
             size="sm"
-            disabled={!newTaskName.trim() || addingTask}
+            disabled={!newTaskName.trim()}
             className="h-9 px-3 gap-1.5 flex-shrink-0"
           >
-            {addingTask ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Plus className="w-3.5 h-3.5" />
-            )}
+            <Plus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Add</span>
           </Button>
         </form>
@@ -512,8 +496,26 @@ export default function GridPage({ darkMode, onToggleDark }: GridPageProps) {
           >
             <table className="habit-table">
               <thead>
+                {/* Month separator row */}
                 <tr>
-                  {/* Sticky task header */}
+                  <th
+                    className="sticky-col bg-background border border-border"
+                    style={{ minWidth: 180 }}
+                  />
+                  {MONTH_SPANS.map((span) => (
+                    <th
+                      key={span.month}
+                      colSpan={span.colSpan}
+                      className="text-center border border-border py-1 bg-secondary"
+                    >
+                      <span className="text-[11px] font-600 text-foreground uppercase tracking-wide">
+                        {MONTH_ABBR[span.month]}
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+                {/* Date headers */}
+                <tr>
                   <th
                     className="sticky-col bg-background text-left px-4 py-2 min-w-[180px] max-w-[220px] border border-border z-10"
                     style={{ minWidth: 180 }}
@@ -522,45 +524,26 @@ export default function GridPage({ darkMode, onToggleDark }: GridPageProps) {
                       Task
                     </span>
                   </th>
-                  {/* Date headers */}
                   {dates.map((date, i) => {
                     const dk = dateKey(date);
-                    const isToday = dk === TODAY_KEY;
+                    const isToday = dk === todayKey;
                     return (
                       <th
                         key={dk}
                         ref={isToday ? todayColRef : undefined}
-                        className={`text-center px-1 py-1.5 min-w-[44px] border border-border ${
-                          isToday ? "today-col-header" : ""
-                        }`}
+                        data-date={dk}
+                        className={`text-center px-1 py-1.5 min-w-[44px] border border-border ${isToday ? "today-col-header" : ""}`}
                         style={{ minWidth: 44 }}
                         data-ocid={i === 0 ? "grid.table" : undefined}
                       >
                         <div className="flex flex-col items-center gap-0.5">
                           <span
-                            className={`text-[10px] font-400 ${
-                              isToday
-                                ? "text-accent-foreground font-600"
-                                : "text-muted-foreground"
-                            }`}
-                          >
-                            {MONTH_ABBR[date.getMonth()]}
-                          </span>
-                          <span
-                            className={`text-sm font-600 leading-none ${
-                              isToday
-                                ? "text-accent-foreground"
-                                : "text-foreground"
-                            }`}
+                            className={`text-sm font-600 leading-none ${isToday ? "text-accent-foreground" : "text-foreground"}`}
                           >
                             {date.getDate()}
                           </span>
                           <span
-                            className={`text-[9px] ${
-                              isToday
-                                ? "text-accent-foreground"
-                                : "text-muted-foreground"
-                            }`}
+                            className={`text-[9px] ${isToday ? "text-accent-foreground" : "text-muted-foreground"}`}
                           >
                             {DAY_ABBR[date.getDay()]}
                           </span>
@@ -574,86 +557,87 @@ export default function GridPage({ darkMode, onToggleDark }: GridPageProps) {
                 </tr>
               </thead>
               <tbody>
-                {tasks.map((task, taskIdx) => (
-                  <tr
-                    key={task.id}
-                    data-ocid={`task.item.${taskIdx + 1}`}
-                    className="group"
-                  >
-                    {/* Sticky task name cell */}
-                    <td
-                      className="sticky-col bg-background border border-border px-3 py-0"
-                      style={{ minWidth: 180 }}
-                      data-ocid={`task.checkbox.${taskIdx + 1}`}
+                {tasks.map((task, taskIdx) => {
+                  // Determine the task's start date key
+                  const taskStartKey = dateKey(new Date(task.createdAt));
+                  return (
+                    <tr
+                      key={task.id}
+                      data-ocid={`task.item.${taskIdx + 1}`}
+                      className="group"
                     >
-                      <div className="flex items-center gap-1.5 h-10">
-                        {editingTaskId === task.id ? (
-                          <Input
-                            value={editingName}
-                            onChange={(e) => setEditingName(e.target.value)}
-                            onBlur={() => void commitRename(task.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") void commitRename(task.id);
-                              if (e.key === "Escape") setEditingTaskId(null);
-                            }}
-                            autoFocus
-                            className="h-7 text-sm px-2 flex-1"
-                            maxLength={80}
-                          />
-                        ) : (
-                          <span
-                            className="text-sm text-foreground truncate flex-1 cursor-pointer select-none hover:text-primary transition-colors"
-                            onDoubleClick={() => startEditing(task)}
-                            title="Double-click to rename"
-                          >
-                            {task.name}
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          data-ocid={`task.delete_button.${taskIdx + 1}`}
-                          onClick={() => void handleDeleteTask(task.id)}
-                          title="Delete task"
-                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-0.5 rounded hover:text-destructive text-muted-foreground flex-shrink-0"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-
-                    {/* Date cells */}
-                    {dates.map((date, colIdx) => {
-                      const dk = dateKey(date);
-                      const isToday = dk === TODAY_KEY;
-                      const key = compKey(task.id, dk);
-                      const checked = completions.has(key);
-                      return (
-                        <td
-                          key={dk}
-                          className={`text-center border border-border p-0 ${
-                            isToday ? "today-col-cell" : ""
-                          } ${checked ? "checked-cell" : ""}`}
-                          style={{ minWidth: 44, width: 44, height: 40 }}
-                          data-ocid={
-                            colIdx === 0
-                              ? `task.item.${taskIdx + 1}`
-                              : undefined
-                          }
-                        >
-                          <div className="flex items-center justify-center h-full">
-                            <input
-                              type="checkbox"
-                              className="habit-checkbox"
-                              checked={checked}
-                              onChange={() => toggleCompletion(task.id, dk)}
-                              aria-label={`${task.name} on ${dk}`}
+                      {/* Sticky task name cell */}
+                      <td
+                        className="sticky-col bg-background border border-border px-3 py-0"
+                        style={{ minWidth: 180 }}
+                      >
+                        <div className="flex items-center gap-1.5 h-10">
+                          {editingTaskId === task.id ? (
+                            <Input
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              onBlur={() => commitRename(task.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") commitRename(task.id);
+                                if (e.key === "Escape") setEditingTaskId(null);
+                              }}
+                              autoFocus
+                              className="h-7 text-sm px-2 flex-1"
+                              maxLength={80}
                             />
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                          ) : (
+                            <span
+                              className="text-sm text-foreground truncate flex-1 cursor-pointer select-none hover:text-primary transition-colors"
+                              onDoubleClick={() => startEditing(task)}
+                              title="Double-click to rename"
+                            >
+                              {task.name}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            data-ocid={`task.delete_button.${taskIdx + 1}`}
+                            onClick={() => handleDeleteTask(task.id)}
+                            title="Delete task"
+                            className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-0.5 rounded hover:text-destructive text-muted-foreground flex-shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+
+                      {/* Date cells */}
+                      {dates.map((date) => {
+                        const dk = dateKey(date);
+                        const isToday = dk === todayKey;
+                        const isBefore = dk < taskStartKey;
+                        const key = compKey(task.id, dk);
+                        const checked = !!data.completions[key];
+                        return (
+                          <td
+                            key={dk}
+                            className={`text-center border border-border p-0 ${isToday ? "today-col-cell" : ""} ${checked ? "checked-cell" : ""} ${isBefore ? "opacity-30 bg-muted/30" : ""}`}
+                            style={{ minWidth: 44, width: 44, height: 40 }}
+                          >
+                            {isBefore ? (
+                              <div className="w-full h-full" />
+                            ) : (
+                              <div className="flex items-center justify-center h-full">
+                                <input
+                                  type="checkbox"
+                                  className="habit-checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleCompletion(task.id, dk)}
+                                  aria-label={`${task.name} on ${dk}`}
+                                />
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -674,6 +658,14 @@ export default function GridPage({ darkMode, onToggleDark }: GridPageProps) {
           </a>
         </p>
       </footer>
+
+      {/* Calendar modal */}
+      <CalendarView
+        open={calendarOpen}
+        onClose={() => setCalendarOpen(false)}
+        data={data}
+        todayKey={todayKey}
+      />
     </div>
   );
 }

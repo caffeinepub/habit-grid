@@ -1,24 +1,49 @@
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useState } from "react";
-import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import { getAuth, setAuth, setSession } from "../utils/habitStorage";
 
-export default function LoginPage() {
-  const { login, isLoggingIn, isLoginError, loginError } =
-    useInternetIdentity();
-  const [clicked, setClicked] = useState(false);
+interface LoginPageProps {
+  onLogin: (username: string) => void;
+}
 
-  function handleSignIn() {
-    setClicked(true);
-    login();
+export default function LoginPage({ onLogin }: LoginPageProps) {
+  const existingAuth = getAuth();
+  const isFirstTime = !existingAuth;
+
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    const u = username.trim();
+    const p = password;
+    if (!u || !p) {
+      setError("Please enter a username and password.");
+      return;
+    }
+    if (isFirstTime) {
+      // Register
+      setAuth({ username: u, password: p });
+      setSession(u);
+      onLogin(u);
+    } else {
+      // Login
+      if (existingAuth.username === u && existingAuth.password === p) {
+        setSession(u);
+        onLogin(u);
+      } else {
+        setError("Incorrect username or password.");
+      }
+    }
   }
-
-  const isLoading = isLoggingIn;
-  const hasError = isLoginError && clicked;
 
   return (
     <main className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-sm animate-fade-in">
+      <div className="w-full max-w-sm">
         {/* Logo / brand */}
         <div className="mb-10 text-center">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-foreground mb-4">
@@ -93,48 +118,71 @@ export default function LoginPage() {
         </div>
 
         {/* Card */}
-        <div className="bg-card border border-border rounded-xl p-8 shadow-soft">
-          <p className="text-sm text-muted-foreground mb-6 text-center leading-relaxed">
-            Sign in securely to access your personal habit grid. Your data is
-            stored privately and only accessible to you.
+        <div className="bg-card border border-border rounded-xl p-8 shadow-sm">
+          <p className="text-sm text-muted-foreground mb-6 text-center">
+            {isFirstTime
+              ? "Create your account to get started."
+              : "Sign in to access your habits."}
           </p>
 
-          {/* Error state */}
-          {hasError && (
+          {error && (
             <div
               data-ocid="login.error_state"
               className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive"
             >
-              {loginError?.message || "Sign in failed. Please try again."}
+              {error}
             </div>
           )}
 
-          <Button
-            data-ocid="login.submit_button"
-            onClick={handleSignIn}
-            disabled={isLoading}
-            className="w-full h-11 text-sm font-500"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                <span data-ocid="login.loading_state">Signing in…</span>
-              </>
-            ) : (
-              "Sign In"
-            )}
-          </Button>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="username" className="text-sm">
+                Username
+              </Label>
+              <Input
+                id="username"
+                data-ocid="login.username_input"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="your username"
+                autoComplete="username"
+                className="h-10"
+                maxLength={40}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-sm">
+                Password
+              </Label>
+              <Input
+                id="password"
+                data-ocid="login.password_input"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="your password"
+                autoComplete="current-password"
+                className="h-10"
+                maxLength={100}
+              />
+            </div>
+            <Button
+              data-ocid="login.submit_button"
+              type="submit"
+              className="w-full h-11 text-sm font-500 mt-2"
+            >
+              {isFirstTime ? "Create Account" : "Sign In"}
+            </Button>
+          </form>
 
-          <p className="text-xs text-muted-foreground text-center mt-4">
-            New users are created automatically on first sign in.
-          </p>
+          {isFirstTime && (
+            <p className="text-xs text-muted-foreground text-center mt-4">
+              This will be the only account. Keep your password safe.
+            </p>
+          )}
         </div>
 
-        {/* Hidden inputs for data-ocid marker compliance */}
-        <input data-ocid="login.username_input" type="hidden" />
-        <input data-ocid="login.password_input" type="hidden" />
-
-        {/* Footer */}
         <p className="text-center text-xs text-muted-foreground mt-8">
           © {new Date().getFullYear()}. Built with ♥ using{" "}
           <a
