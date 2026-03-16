@@ -1,5 +1,13 @@
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   BarChart2,
   BookOpen,
@@ -13,7 +21,9 @@ import {
   Moon,
   Plus,
   Sun,
+  Target,
   Trash2,
+  Trophy,
   Undo2,
   X,
 } from "lucide-react";
@@ -32,10 +42,12 @@ import {
   perfectDaysThisWeek,
   saveData,
 } from "../utils/habitStorage";
+import BadgesPanel from "./BadgesPanel";
 import CalendarView from "./CalendarView";
 import DailyTasksPage from "./DailyTasksPage";
-import InsightsPanel from "./InsightsPanel";
+import InsightsPanel, { InsightsContent } from "./InsightsPanel";
 import MessageOfDaySlide from "./MessageOfDaySlide";
+import WeeklyGoalsPanel from "./WeeklyGoalsPanel";
 
 interface GridPageProps {
   username: string;
@@ -122,7 +134,7 @@ function computeMonthSpans(): MonthSpan[] {
 }
 const MONTH_SPANS = computeMonthSpans();
 
-type ActiveTab = "general" | "daily";
+type ActiveTab = "general" | "daily" | "analytics";
 
 /** Mini sparkline: last 7 days for a task */
 function Sparkline({
@@ -194,13 +206,20 @@ export default function GridPage({
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [insightsOpen, setInsightsOpen] = useState(false);
   const [motdOpen, setMotdOpen] = useState(false);
   const [todayKey, setTodayKey] = useState(() => dateKey(new Date()));
   const [activeTab, setActiveTab] = useState<ActiveTab>("general");
   const [hoveredColorTaskId, setHoveredColorTaskId] = useState<string | null>(
     null,
   );
+  const [badgesOpen, setBadgesOpen] = useState(false);
+  const [goalsOpen, setGoalsOpen] = useState(false);
+  // Missed task note dialog
+  const [missedNoteDialog, setMissedNoteDialog] = useState<{
+    taskId: string;
+    dk: string;
+  } | null>(null);
+  const [missedNoteText, setMissedNoteText] = useState("");
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const todayColRef = useRef<HTMLTableCellElement>(null);
@@ -281,6 +300,9 @@ export default function GridPage({
         completions: { ...prev.completions, [key]: false },
         blocked: { ...prev.blocked, [key]: true },
       }));
+      // Open optional missed note dialog
+      setMissedNoteText("");
+      setMissedNoteDialog({ taskId, dk });
     } else if (prevState === "blocked") {
       // Single-tap on blocked: go to checked
       persist((prev) => ({
@@ -378,6 +400,22 @@ export default function GridPage({
     toast.success("Message saved");
   }
 
+  function handleSaveMissedNote() {
+    if (!missedNoteDialog) return;
+    const noteKey = `${missedNoteDialog.taskId}|${missedNoteDialog.dk}`;
+    if (missedNoteText.trim()) {
+      persist((prev) => ({
+        ...prev,
+        missedNotes: {
+          ...(prev.missedNotes ?? {}),
+          [noteKey]: missedNoteText.trim(),
+        },
+      }));
+    }
+    setMissedNoteDialog(null);
+    setMissedNoteText("");
+  }
+
   function handleColorChange(taskId: string, color: string) {
     persist((prev) => ({
       ...prev,
@@ -409,7 +447,7 @@ export default function GridPage({
   );
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="flex-1 bg-background flex flex-col">
       {/* Top bar */}
       <header className="sticky top-0 z-20 bg-background border-b border-border">
         <div className="max-w-full px-4 h-14 flex items-center gap-2">
@@ -531,17 +569,6 @@ export default function GridPage({
             )}
           </Button>
 
-          {/* Insights button */}
-          <button
-            data-ocid="insights.open_modal_button"
-            type="button"
-            onClick={() => setInsightsOpen(true)}
-            title="Insights"
-            className="w-9 h-9 rounded-full bg-foreground/8 hover:bg-foreground/15 border border-border flex items-center justify-center transition-colors flex-shrink-0"
-          >
-            <BarChart2 className="w-4 h-4 text-foreground" />
-          </button>
-
           {/* Message of the Day button */}
           <button
             data-ocid="grid.motd_open_modal_button"
@@ -558,6 +585,28 @@ export default function GridPage({
             {todayHasMessage && (
               <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-accent-foreground" />
             )}
+          </button>
+
+          {/* Badges button */}
+          <button
+            data-ocid="badges.open_modal_button"
+            type="button"
+            onClick={() => setBadgesOpen(true)}
+            title="Achievement Badges"
+            className="w-9 h-9 rounded-full bg-foreground/8 hover:bg-foreground/15 border border-border flex items-center justify-center transition-colors flex-shrink-0"
+          >
+            <Trophy className="w-4 h-4 text-foreground" />
+          </button>
+
+          {/* Weekly Goals button */}
+          <button
+            data-ocid="goals.open_modal_button"
+            type="button"
+            onClick={() => setGoalsOpen(true)}
+            title="Weekly Goals"
+            className="w-9 h-9 rounded-full bg-foreground/8 hover:bg-foreground/15 border border-border flex items-center justify-center transition-colors flex-shrink-0"
+          >
+            <Target className="w-4 h-4 text-foreground" />
           </button>
 
           {/* Calendar circular button */}
@@ -809,7 +858,7 @@ export default function GridPage({
             ) : (
               <div
                 ref={scrollRef}
-                className="overflow-x-auto overflow-y-auto h-[calc(100vh-210px)]"
+                className="flex-1 min-h-0 overflow-x-auto overflow-y-auto"
               >
                 <table className="habit-table">
                   <thead>
@@ -1078,7 +1127,7 @@ export default function GridPage({
             )}
           </main>
         </>
-      ) : (
+      ) : activeTab === "daily" ? (
         <main className="flex-1 overflow-hidden flex flex-col">
           <DailyTasksPage
             username={username}
@@ -1087,6 +1136,10 @@ export default function GridPage({
             todayKey={todayKey}
           />
         </main>
+      ) : (
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <InsightsContent data={data} todayKey={todayKey} />
+        </div>
       )}
 
       {/* Bottom tab bar */}
@@ -1097,7 +1150,7 @@ export default function GridPage({
             data-ocid="tabs.general_tab"
             onClick={() => setActiveTab("general")}
             className={[
-              "flex-1 flex flex-col items-center justify-center gap-1 py-3 text-xs font-500 transition-colors",
+              "flex-1 flex flex-col items-center justify-center gap-1 py-3 text-xs font-500 transition-colors relative",
               activeTab === "general"
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground/70",
@@ -1138,36 +1191,36 @@ export default function GridPage({
               <span className="absolute bottom-0 h-0.5 w-12 rounded-full bg-foreground" />
             )}
           </button>
+          <button
+            type="button"
+            data-ocid="tabs.analytics_tab"
+            onClick={() => setActiveTab("analytics")}
+            className={[
+              "flex-1 flex flex-col items-center justify-center gap-1 py-3 text-xs font-500 transition-colors relative",
+              activeTab === "analytics"
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground/70",
+            ].join(" ")}
+          >
+            <BarChart2
+              className={`w-5 h-5 ${
+                activeTab === "analytics"
+                  ? "text-foreground"
+                  : "text-muted-foreground"
+              }`}
+            />
+            <span>Analytics</span>
+            {activeTab === "analytics" && (
+              <span className="absolute bottom-0 h-0.5 w-12 rounded-full bg-foreground" />
+            )}
+          </button>
         </div>
       </nav>
-
-      {/* Footer */}
-      <footer className="border-t border-border py-3 px-4 text-center">
-        <p className="text-xs text-muted-foreground">
-          © {new Date().getFullYear()}. Built with ♥ using{" "}
-          <a
-            href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline underline-offset-2 hover:text-foreground transition-colors"
-          >
-            caffeine.ai
-          </a>
-        </p>
-      </footer>
 
       {/* Calendar modal */}
       <CalendarView
         open={calendarOpen}
         onClose={() => setCalendarOpen(false)}
-        data={data}
-        todayKey={todayKey}
-      />
-
-      {/* Insights panel */}
-      <InsightsPanel
-        open={insightsOpen}
-        onClose={() => setInsightsOpen(false)}
         data={data}
         todayKey={todayKey}
       />
@@ -1180,6 +1233,73 @@ export default function GridPage({
         onSave={handleSaveMessage}
         todayKey={todayKey}
       />
+
+      {/* Badges panel */}
+      <BadgesPanel
+        open={badgesOpen}
+        onClose={() => setBadgesOpen(false)}
+        data={data}
+        todayKey={todayKey}
+      />
+
+      {/* Weekly goals panel */}
+      <WeeklyGoalsPanel
+        open={goalsOpen}
+        onClose={() => setGoalsOpen(false)}
+        data={data}
+        onPersist={persist}
+        todayKey={todayKey}
+      />
+
+      {/* Missed task note dialog */}
+      <Dialog
+        open={!!missedNoteDialog}
+        onOpenChange={(o) => {
+          if (!o) {
+            setMissedNoteDialog(null);
+            setMissedNoteText("");
+          }
+        }}
+      >
+        <DialogContent data-ocid="missed_note.dialog" className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle className="font-display text-base">
+              Why did you miss this?
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground">
+              Optional — helps you reflect and improve.
+            </p>
+          </DialogHeader>
+          <Textarea
+            data-ocid="missed_note.textarea"
+            value={missedNoteText}
+            onChange={(e) => setMissedNoteText(e.target.value)}
+            placeholder="e.g. Too tired, unexpected meeting…"
+            className="h-20 text-sm resize-none"
+            maxLength={100}
+          />
+          <DialogFooter className="gap-2">
+            <Button
+              data-ocid="missed_note.cancel_button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setMissedNoteDialog(null);
+                setMissedNoteText("");
+              }}
+            >
+              Skip
+            </Button>
+            <Button
+              data-ocid="missed_note.save_button"
+              size="sm"
+              onClick={handleSaveMissedNote}
+            >
+              Save Note
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

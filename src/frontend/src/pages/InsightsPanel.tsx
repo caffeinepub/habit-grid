@@ -372,3 +372,227 @@ export default function InsightsPanel({
     </Dialog>
   );
 }
+
+export function InsightsContent({
+  data,
+  todayKey,
+}: {
+  data: HabitData;
+  todayKey: string;
+}) {
+  const weekDays = useMemo(
+    () => computeWeakDays(data, todayKey),
+    [data, todayKey],
+  );
+  const months = useMemo(
+    () => computeBestMonth(data, todayKey),
+    [data, todayKey],
+  );
+  const taskDifficulty = useMemo(
+    () => computeTaskDifficulty(data, todayKey),
+    [data, todayKey],
+  );
+
+  const weakestDay = weekDays.reduce(
+    (weakest, d) => {
+      if (d.rate === null) return weakest;
+      if (weakest === null || (weakest.rate !== null && d.rate < weakest.rate))
+        return d;
+      return weakest;
+    },
+    null as (typeof weekDays)[0] | null,
+  );
+
+  const bestMonth = months.reduce(
+    (best, m) => {
+      if (m.rate === null) return best;
+      if (best === null || (best.rate !== null && m.rate > best.rate)) return m;
+      return best;
+    },
+    null as (typeof months)[0] | null,
+  );
+
+  return (
+    <div className="overflow-y-auto flex-1 px-5 pt-4 pb-6 space-y-7">
+      {/* Header */}
+      <div className="pb-2 border-b border-border">
+        <h2 className="font-display text-lg font-600 text-foreground">
+          Analytics
+        </h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Analysis of your habit performance in 2026
+        </p>
+      </div>
+
+      {/* ── Weak Day Detector ─── */}
+      <section>
+        <h3 className="text-sm font-600 text-foreground mb-3 flex items-center gap-2">
+          <span className="w-5 h-5 rounded bg-orange-500/15 flex items-center justify-center text-xs">
+            📅
+          </span>
+          Weekly Performance
+        </h3>
+        {weekDays.every((d) => d.rate === null) ? (
+          <p className="text-xs text-muted-foreground">
+            No data yet. Start tracking habits to see weekly patterns.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {weekDays.map((d) => {
+              const isWeakest = weakestDay?.day === d.day && d.rate !== null;
+              return (
+                <div key={d.day} className="flex items-center gap-2">
+                  <span
+                    className={`text-xs w-24 flex-shrink-0 font-500 ${
+                      isWeakest ? "text-orange-500" : "text-foreground"
+                    }`}
+                  >
+                    {d.day.slice(0, 3)}
+                    {isWeakest && " ⚠️"}
+                  </span>
+                  <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                    {d.rate !== null ? (
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          isWeakest
+                            ? "bg-orange-500"
+                            : d.rate >= 70
+                              ? "bg-green-500"
+                              : d.rate >= 40
+                                ? "bg-yellow-500"
+                                : "bg-red-400"
+                        }`}
+                        style={{ width: `${d.rate}%` }}
+                      />
+                    ) : (
+                      <div className="h-full w-0" />
+                    )}
+                  </div>
+                  <span className="text-xs text-muted-foreground w-10 text-right flex-shrink-0">
+                    {d.rate !== null ? `${d.rate}%` : "—"}
+                  </span>
+                </div>
+              );
+            })}
+            {weakestDay && weakestDay.rate !== null && (
+              <p className="mt-2 text-xs text-orange-500 font-500 bg-orange-500/10 rounded-lg px-3 py-2">
+                Your weakest day is <strong>{weakestDay.day}</strong> (
+                {weakestDay.rate}% completion). Consider lighter goals on this
+                day.
+              </p>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ── Best Month ─── */}
+      <section>
+        <h3 className="text-sm font-600 text-foreground mb-3 flex items-center gap-2">
+          <span className="w-5 h-5 rounded bg-blue-500/15 flex items-center justify-center text-xs">
+            📈
+          </span>
+          Monthly Performance
+        </h3>
+        {months.every((m) => m.rate === null) ? (
+          <p className="text-xs text-muted-foreground">No data yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {months
+              .filter((m) => m.rate !== null)
+              .map((m) => {
+                const isBest = bestMonth?.month === m.month;
+                return (
+                  <div key={m.month} className="flex items-center gap-2">
+                    <span
+                      className={`text-xs w-24 flex-shrink-0 font-500 ${
+                        isBest ? "text-blue-500" : "text-foreground"
+                      }`}
+                    >
+                      {m.month.slice(0, 3)}
+                      {isBest && " 🏆"}
+                    </span>
+                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          isBest
+                            ? "bg-blue-500"
+                            : (m.rate ?? 0) >= 70
+                              ? "bg-green-500"
+                              : (m.rate ?? 0) >= 40
+                                ? "bg-yellow-500"
+                                : "bg-red-400"
+                        }`}
+                        style={{ width: `${m.rate}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-muted-foreground w-10 text-right flex-shrink-0">
+                      {m.rate}%
+                    </span>
+                  </div>
+                );
+              })}
+            {bestMonth && bestMonth.rate !== null && (
+              <p className="mt-2 text-xs text-blue-500 font-500 bg-blue-500/10 rounded-lg px-3 py-2">
+                Best month: <strong>{bestMonth.month}</strong> with{" "}
+                {bestMonth.rate}% completion 🏆
+              </p>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ── Task Difficulty Ranking ─── */}
+      <section>
+        <h3 className="text-sm font-600 text-foreground mb-3 flex items-center gap-2">
+          <span className="w-5 h-5 rounded bg-purple-500/15 flex items-center justify-center text-xs">
+            🏋️
+          </span>
+          Task Difficulty Ranking
+        </h3>
+        {taskDifficulty.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No tasks to rank yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {taskDifficulty.map((task, i) => (
+              <div key={task.name} className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-5 flex-shrink-0 font-600">
+                  #{i + 1}
+                </span>
+                <span className="text-xs text-foreground flex-1 min-w-0 truncate">
+                  {task.name}
+                </span>
+                <div className="w-20 h-2 bg-muted rounded-full overflow-hidden flex-shrink-0">
+                  <div
+                    className={`h-full rounded-full ${
+                      task.missRate >= 70
+                        ? "bg-red-500"
+                        : task.missRate >= 40
+                          ? "bg-orange-500"
+                          : "bg-yellow-400"
+                    }`}
+                    style={{ width: `${task.missRate}%` }}
+                  />
+                </div>
+                <span
+                  className={`text-xs font-600 w-12 text-right flex-shrink-0 ${
+                    task.missRate >= 70
+                      ? "text-red-500"
+                      : task.missRate >= 40
+                        ? "text-orange-500"
+                        : "text-yellow-500"
+                  }`}
+                >
+                  {task.missRate}% miss
+                </span>
+              </div>
+            ))}
+            <p className="text-[10px] text-muted-foreground mt-2">
+              Ranked by miss rate — higher % means harder to maintain
+              consistently.
+            </p>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

@@ -5,6 +5,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type HabitData, dateKey, tasksForDate } from "../utils/habitStorage";
 
 interface CalendarViewProps {
@@ -29,6 +30,7 @@ const MONTH_NAMES = [
   "December",
 ];
 const DAY_ABBR = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function getDaysInMonth(year: number, month: number): Date[] {
   const days: Date[] = [];
@@ -50,12 +52,13 @@ function dayCompletionRate(data: HabitData, date: Date): number {
 }
 
 /** Interpolate a green heatmap color from rate 0–1 */
-function heatmapColor(rate: number, isDark: boolean): string {
-  if (rate === 0) return isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
-  // OKLCH-inspired green scale: from pale to vivid
+function heatmapColor(rate: number): string {
+  if (rate === 0) return "rgba(128,128,128,0.08)";
   const alpha = 0.15 + rate * 0.85;
   return `rgba(34, 197, 94, ${alpha.toFixed(2)})`;
 }
+
+// ─── Heatmap View ──────────────────────────────────────────────────────
 
 interface HeatmapCellProps {
   date: Date | null;
@@ -76,7 +79,6 @@ function HeatmapCell({ date, data, todayKey }: HeatmapCellProps) {
     ? 0
     : dayTasks.filter((t) => data.completions[`${t.id}|${dk}`]).length;
 
-  // Daily tasks for tooltip
   const dailyTasksForDay = data.dailyTasks?.[dk] ?? [];
   const dailyTotal = dailyTasksForDay.filter((t) => !t.deletedAt).length;
   const dailyDone = dailyTasksForDay.filter(
@@ -89,15 +91,13 @@ function HeatmapCell({ date, data, todayKey }: HeatmapCellProps) {
   if (dayTasks.length > 0)
     tooltipParts.push(`General: ${done}/${dayTasks.length}`);
   if (dailyTotal > 0) tooltipParts.push(`Daily: ${dailyDone}/${dailyTotal}`);
-  if (!isFuture && dayTasks.length === 0 && dailyTotal === 0)
-    tooltipParts.push("No tasks");
   const tooltip = tooltipParts.join(" · ");
 
   return (
     <div
       title={tooltip}
       className={[
-        "w-full aspect-square rounded-sm transition-colors cursor-default",
+        "w-full aspect-square rounded-sm transition-colors cursor-default relative flex items-center justify-center",
         isToday
           ? "ring-2 ring-foreground/60 ring-offset-1 ring-offset-background"
           : "",
@@ -108,11 +108,16 @@ function HeatmapCell({ date, data, todayKey }: HeatmapCellProps) {
       style={{
         backgroundColor: isFuture
           ? "rgba(128,128,128,0.08)"
-          : heatmapColor(rate, false),
+          : heatmapColor(rate),
       }}
     >
-      <span className="sr-only">
-        {date.getDate()} — {tooltip}
+      <span
+        className="text-[8px] leading-none font-500 select-none"
+        style={{
+          color: rate > 0.5 ? "rgba(255,255,255,0.9)" : "rgba(100,100,100,0.7)",
+        }}
+      >
+        {date.getDate()}
       </span>
     </div>
   );
@@ -135,7 +140,6 @@ function HeatmapMonth({
       <h3 className="font-display text-sm font-600 text-foreground mb-2">
         {MONTH_NAMES[month]}
       </h3>
-      {/* Day-of-week labels */}
       <div className="grid grid-cols-7 gap-1 mb-1">
         {DAY_ABBR.map((d) => (
           <div
@@ -146,7 +150,6 @@ function HeatmapMonth({
           </div>
         ))}
       </div>
-      {/* Heatmap grid */}
       <div className="grid grid-cols-7 gap-1">
         {cells.map((date, i) => {
           const key = date ? dateKey(date) : `null-${month}-${i}`;
@@ -163,6 +166,109 @@ function HeatmapMonth({
     </div>
   );
 }
+
+// ─── Classic View ──────────────────────────────────────────────────────
+
+function ClassicMonth({
+  year,
+  month,
+  data,
+  todayKey,
+}: { year: number; month: number; data: HabitData; todayKey: string }) {
+  const days = getDaysInMonth(year, month);
+
+  return (
+    <div className="mb-6">
+      <h3 className="font-display text-sm font-600 text-foreground mb-2">
+        {MONTH_NAMES[month]}
+      </h3>
+      <div className="space-y-0.5">
+        {days.map((date) => {
+          const dk = dateKey(date);
+          const isToday = dk === todayKey;
+          const isFuture = dk > todayKey;
+
+          const dayTasks = tasksForDate(data, date);
+          const generalTotal = dayTasks.length;
+          const generalDone = isFuture
+            ? 0
+            : dayTasks.filter((t) => data.completions[`${t.id}|${dk}`]).length;
+
+          const dailyTasksForDay = data.dailyTasks?.[dk] ?? [];
+          const dailyTotal = dailyTasksForDay.filter(
+            (t) => !t.deletedAt,
+          ).length;
+          const dailyDone = isFuture
+            ? 0
+            : dailyTasksForDay.filter(
+                (t) => !t.deletedAt && data.dailyCompletions?.[`${t.id}|${dk}`],
+              ).length;
+
+          const isPerfect =
+            !isFuture &&
+            generalTotal > 0 &&
+            generalDone === generalTotal &&
+            (dailyTotal === 0 || dailyDone === dailyTotal);
+
+          return (
+            <div
+              key={dk}
+              className={[
+                "flex items-center gap-3 px-3 py-1.5 rounded-lg text-xs transition-colors",
+                isToday ? "bg-foreground/8 border border-foreground/20" : "",
+                isPerfect ? "bg-green-500/8 border border-green-500/20" : "",
+                isFuture ? "opacity-40" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            >
+              {/* Day number + weekday */}
+              <span
+                className={`font-700 w-6 text-right flex-shrink-0 ${
+                  isToday ? "text-foreground" : "text-muted-foreground"
+                }`}
+              >
+                {date.getDate()}
+              </span>
+              <span className="text-muted-foreground w-7 flex-shrink-0">
+                {DAY_NAMES[date.getDay()]}
+              </span>
+
+              {/* Ratios */}
+              <div className="flex items-center gap-3 ml-auto">
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-500 ${
+                    !isFuture &&
+                    generalTotal > 0 &&
+                    generalDone === generalTotal
+                      ? "bg-green-500/15 text-green-700 dark:text-green-400"
+                      : "bg-muted/60 text-muted-foreground"
+                  }`}
+                >
+                  G: {isFuture ? "—" : `${generalDone}/${generalTotal || 0}`}
+                </span>
+                {(dailyTotal > 0 || !isFuture) && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-500 ${
+                      !isFuture && dailyTotal > 0 && dailyDone === dailyTotal
+                        ? "bg-green-500/15 text-green-700 dark:text-green-400"
+                        : "bg-muted/60 text-muted-foreground"
+                    }`}
+                  >
+                    D: {isFuture ? "—" : `${dailyDone}/${dailyTotal}`}
+                  </span>
+                )}
+                {isPerfect && <span className="text-green-500">✓</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ────────────────────────────────────────────────────
 
 export default function CalendarView({
   open,
@@ -185,39 +291,88 @@ export default function CalendarView({
       >
         <DialogHeader className="px-5 pt-5 pb-3 border-b border-border">
           <DialogTitle className="font-display text-lg font-600">
-            Heatmap — {year}
+            Calendar — {year}
           </DialogTitle>
-          <div className="flex items-center gap-3 mt-1">
-            <p className="text-xs text-muted-foreground">
-              Color intensity = daily completion rate for general tasks
-            </p>
-            {/* Legend */}
-            <div className="flex items-center gap-1 ml-auto flex-shrink-0">
-              <span className="text-[10px] text-muted-foreground">Less</span>
-              {[0.05, 0.25, 0.5, 0.75, 1].map((r) => (
-                <div
-                  key={r}
-                  className="w-3 h-3 rounded-sm"
-                  style={{ backgroundColor: heatmapColor(r, false) }}
-                />
-              ))}
-              <span className="text-[10px] text-muted-foreground">More</span>
-            </div>
-          </div>
         </DialogHeader>
-        <ScrollArea className="h-[calc(90vh-90px)]">
-          <div className="px-5 pt-4 pb-6">
-            {MONTH_NAMES.map((name, i) => (
-              <HeatmapMonth
-                key={name}
-                year={year}
-                month={i}
-                data={data}
-                todayKey={todayKey}
-              />
-            ))}
-          </div>
-        </ScrollArea>
+
+        <Tabs defaultValue="classic" className="flex flex-col flex-1 min-h-0">
+          <TabsList className="mx-5 mt-3 mb-0 flex-shrink-0">
+            <TabsTrigger
+              data-ocid="calendar.classic_tab"
+              value="classic"
+              className="flex-1"
+            >
+              Classic
+            </TabsTrigger>
+            <TabsTrigger
+              data-ocid="calendar.heatmap_tab"
+              value="heatmap"
+              className="flex-1"
+            >
+              Heatmap
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent
+            value="classic"
+            className="flex-1 overflow-hidden mt-0 pt-3"
+          >
+            <ScrollArea className="h-full">
+              <div className="px-5 pb-6">
+                {MONTH_NAMES.map((_name, i) => (
+                  <ClassicMonth
+                    key={MONTH_NAMES[i]}
+                    year={year}
+                    month={i}
+                    data={data}
+                    todayKey={todayKey}
+                  />
+                ))}
+              </div>
+            </ScrollArea>
+          </TabsContent>
+
+          <TabsContent
+            value="heatmap"
+            className="flex-1 overflow-hidden mt-0 pt-3"
+          >
+            <div className="px-5 pb-2">
+              <div className="flex items-center gap-3 mb-3">
+                <p className="text-xs text-muted-foreground flex-1">
+                  Color intensity = daily completion rate
+                </p>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-muted-foreground">
+                    Less
+                  </span>
+                  {[0.05, 0.25, 0.5, 0.75, 1].map((r) => (
+                    <div
+                      key={r}
+                      className="w-3 h-3 rounded-sm"
+                      style={{ backgroundColor: heatmapColor(r) }}
+                    />
+                  ))}
+                  <span className="text-[10px] text-muted-foreground">
+                    More
+                  </span>
+                </div>
+              </div>
+            </div>
+            <ScrollArea className="h-full">
+              <div className="px-5 pb-6">
+                {MONTH_NAMES.map((_name, i) => (
+                  <HeatmapMonth
+                    key={MONTH_NAMES[i]}
+                    year={year}
+                    month={i}
+                    data={data}
+                    todayKey={todayKey}
+                  />
+                ))}
+              </div>
+            </ScrollArea>
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );

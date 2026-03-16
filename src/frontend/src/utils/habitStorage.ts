@@ -37,8 +37,8 @@ export function clearSession(): void {
 export interface StoredTask {
   id: string;
   name: string;
-  createdAt: number; // ms timestamp
-  deletedAt?: number; // ms timestamp, set on soft-delete
+  createdAt: number;
+  deletedAt?: number;
 }
 
 export interface DailyTask {
@@ -48,15 +48,37 @@ export interface DailyTask {
   deletedAt?: number;
 }
 
+export interface WeeklyGoal {
+  id: string;
+  text: string;
+  done: boolean;
+  createdAt: number;
+}
+
+export interface SavedSummary {
+  date: string;
+  generalDone: number;
+  generalTotal: number;
+  dailyDone: number;
+  dailyTotal: number;
+  topStreak: string;
+  savedAt: number;
+}
+
 export interface HabitData {
   tasks: StoredTask[];
-  completions: Record<string, boolean>; // "taskId|YYYY-MM-DD" -> true (checked)
-  blocked: Record<string, boolean>; // "taskId|YYYY-MM-DD" -> true (red cross)
-  messages: Record<string, string>; // "YYYY-MM-DD" -> message text
-  dailyTasks: Record<string, DailyTask[]>; // dateKey -> tasks created on that day
-  dailyCompletions: Record<string, boolean>; // "taskId|dateKey" -> true
-  dailyBlocked: Record<string, boolean>; // "taskId|dateKey" -> true
-  taskColors: Record<string, string>; // taskId -> hex color string
+  completions: Record<string, boolean>;
+  blocked: Record<string, boolean>;
+  messages: Record<string, string>;
+  dailyTasks: Record<string, DailyTask[]>;
+  dailyCompletions: Record<string, boolean>;
+  dailyBlocked: Record<string, boolean>;
+  taskColors: Record<string, string>;
+  missedNotes: Record<string, string>;
+  weeklyGoals: Record<string, WeeklyGoal[]>;
+  savedSummaries: Record<string, SavedSummary>;
+  morningCheckIns: Record<string, string[]>;
+  milestonesSeenKeys: string[];
 }
 
 function dataKey(username: string): string {
@@ -65,17 +87,22 @@ function dataKey(username: string): string {
 
 export function getData(username: string): HabitData {
   const raw = localStorage.getItem(dataKey(username));
-  if (!raw)
-    return {
-      tasks: [],
-      completions: {},
-      blocked: {},
-      messages: {},
-      dailyTasks: {},
-      dailyCompletions: {},
-      dailyBlocked: {},
-      taskColors: {},
-    };
+  const empty: HabitData = {
+    tasks: [],
+    completions: {},
+    blocked: {},
+    messages: {},
+    dailyTasks: {},
+    dailyCompletions: {},
+    dailyBlocked: {},
+    taskColors: {},
+    missedNotes: {},
+    weeklyGoals: {},
+    savedSummaries: {},
+    morningCheckIns: {},
+    milestonesSeenKeys: [],
+  };
+  if (!raw) return empty;
   try {
     const parsed = JSON.parse(raw) as HabitData;
     if (!parsed.messages) parsed.messages = {};
@@ -84,18 +111,14 @@ export function getData(username: string): HabitData {
     if (!parsed.dailyCompletions) parsed.dailyCompletions = {};
     if (!parsed.dailyBlocked) parsed.dailyBlocked = {};
     if (!parsed.taskColors) parsed.taskColors = {};
+    if (!parsed.missedNotes) parsed.missedNotes = {};
+    if (!parsed.weeklyGoals) parsed.weeklyGoals = {};
+    if (!parsed.savedSummaries) parsed.savedSummaries = {};
+    if (!parsed.morningCheckIns) parsed.morningCheckIns = {};
+    if (!parsed.milestonesSeenKeys) parsed.milestonesSeenKeys = [];
     return parsed;
   } catch {
-    return {
-      tasks: [],
-      completions: {},
-      blocked: {},
-      messages: {},
-      dailyTasks: {},
-      dailyCompletions: {},
-      dailyBlocked: {},
-      taskColors: {},
-    };
+    return empty;
   }
 }
 
@@ -111,6 +134,15 @@ export function dateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/** Returns the Monday of the week containing `date` as YYYY-MM-DD */
+export function getWeekKey(date: Date): string {
+  const d = new Date(date);
+  const dow = d.getDay();
+  const diffToMon = (dow + 6) % 7;
+  d.setDate(d.getDate() - diffToMon);
+  return dateKey(d);
+}
+
 /** Tasks that are active (not deleted) */
 export function activeTasks(data: HabitData): StoredTask[] {
   return data.tasks.filter((t) => !t.deletedAt);
@@ -118,7 +150,6 @@ export function activeTasks(data: HabitData): StoredTask[] {
 
 /**
  * For a given date, which tasks "existed" on that day?
- * A task existed if createdAt <= end-of-day AND (no deletedAt OR deletedAt > start-of-day)
  */
 export function tasksForDate(data: HabitData, date: Date): StoredTask[] {
   const d = new Date(date);
@@ -134,14 +165,12 @@ export function tasksForDate(data: HabitData, date: Date): StoredTask[] {
 
 // ── Progress helpers ──────────────────────────────────────────────
 
-/** Add N days to a Date, returning a new Date */
 function addDays(d: Date, n: number): Date {
   const copy = new Date(d);
   copy.setDate(copy.getDate() + n);
   return copy;
 }
 
-/** All 2026 dates from task creation date up to (and including) todayKey */
 function taskDateRange(task: StoredTask, todayKey: string): string[] {
   const createdKey = dateKey(new Date(task.createdAt));
   const start = createdKey > "2026-01-01" ? createdKey : "2026-01-01";
@@ -155,10 +184,6 @@ function taskDateRange(task: StoredTask, todayKey: string): string[] {
   return dates;
 }
 
-/**
- * Current streak: consecutive checked days going backwards from today.
- * Skips future days. Stops at task creation date.
- */
 export function currentStreak(
   data: HabitData,
   taskId: string,
@@ -170,7 +195,6 @@ export function currentStreak(
 
   let streak = 0;
   const cur = new Date(`${todayKey}T00:00:00`);
-  // Walk backwards from today
   while (true) {
     const dk = dateKey(cur);
     if (dk < createdKey) break;
@@ -189,9 +213,6 @@ export function currentStreak(
   return streak;
 }
 
-/**
- * Best streak: longest consecutive checked streak ever for this task.
- */
 export function bestStreak(data: HabitData, taskId: string): number {
   const task = data.tasks.find((t) => t.id === taskId);
   if (!task) return 0;
@@ -217,9 +238,6 @@ export function bestStreak(data: HabitData, taskId: string): number {
   return best;
 }
 
-/**
- * Completion rate: % of days from createdAt to today that are checked (0–100, rounded).
- */
 export function completionRate(
   data: HabitData,
   taskId: string,
@@ -235,19 +253,14 @@ export function completionRate(
   return Math.round((checked / dates.length) * 100);
 }
 
-/**
- * Perfect days this week (Mon–Sun), only up to today.
- * A perfect day = all active tasks were checked (not blocked/unchecked) on that day.
- */
 export function perfectDaysThisWeek(
   data: HabitData,
   _tasks: StoredTask[],
   todayKey: string,
 ): { perfect: number; total: number } {
   const today = new Date(`${todayKey}T00:00:00`);
-  // Get Monday of this week
-  const dow = today.getDay(); // 0=Sun,1=Mon,...
-  const diffToMon = (dow + 6) % 7; // days since Monday
+  const dow = today.getDay();
+  const diffToMon = (dow + 6) % 7;
   const monday = addDays(today, -diffToMon);
 
   let perfect = 0;
@@ -257,7 +270,6 @@ export function perfectDaysThisWeek(
     const dk = dateKey(cur);
     if (dk > todayKey) break;
     total++;
-    // Which tasks existed on this day?
     const dayTasks = tasksForDate(data, cur);
     if (dayTasks.length > 0) {
       const allChecked = dayTasks.every(
@@ -270,9 +282,6 @@ export function perfectDaysThisWeek(
   return { perfect, total };
 }
 
-/**
- * Perfect days this calendar month, only up to today.
- */
 export function perfectDaysThisMonth(
   data: HabitData,
   _tasks: StoredTask[],

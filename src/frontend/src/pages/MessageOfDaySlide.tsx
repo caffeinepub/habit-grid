@@ -109,7 +109,7 @@ export default function MessageOfDaySlide({
       <SheetContent
         data-ocid="motd.sheet"
         side="right"
-        className="w-full sm:max-w-md flex flex-col gap-0 p-0"
+        className="w-full sm:max-w-md flex flex-col gap-0 p-0 top-14 h-[calc(100vh-3.5rem)]"
       >
         <SheetHeader className="px-5 pt-5 pb-4 border-b border-border">
           <SheetTitle className="flex items-center gap-2 text-base font-600">
