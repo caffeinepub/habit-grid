@@ -237,14 +237,27 @@ export default function GridPage({
   useEffect(() => {
     if (activeTab !== "general") return;
     const scroll = () => {
-      todayColRef.current?.scrollIntoView({
-        behavior: "smooth",
-        inline: "center",
-        block: "nearest",
-      });
+      const container = scrollRef.current;
+      const todayEl = todayColRef.current;
+      if (!container || !todayEl) return;
+      // Use getBoundingClientRect for accurate position (offsetLeft is relative to table, not scroll container)
+      const containerRect = container.getBoundingClientRect();
+      const todayRect = todayEl.getBoundingClientRect();
+      const todayCenterInViewport = todayRect.left + todayRect.width / 2;
+      const containerLeft = containerRect.left;
+      const containerCenter = containerRect.width / 2;
+      const offset = todayCenterInViewport - containerLeft - containerCenter;
+      container.scrollLeft = Math.max(0, container.scrollLeft + offset);
     };
-    const timer = setTimeout(scroll, 100);
-    return () => clearTimeout(timer);
+    let raf1: number;
+    let raf2: number;
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(scroll);
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
   }, [todayKey, activeTab]);
 
   // Auto-update todayKey at midnight

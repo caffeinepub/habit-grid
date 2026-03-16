@@ -4,8 +4,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useEffect, useRef } from "react";
 import { type HabitData, dateKey, tasksForDate } from "../utils/habitStorage";
 
 interface CalendarViewProps {
@@ -136,7 +136,7 @@ function HeatmapMonth({
   while (cells.length % 7 !== 0) cells.push(null);
 
   return (
-    <div className="mb-6">
+    <div data-month={month} className="mb-6">
       <h3 className="font-display text-sm font-600 text-foreground mb-2">
         {MONTH_NAMES[month]}
       </h3>
@@ -178,7 +178,7 @@ function ClassicMonth({
   const days = getDaysInMonth(year, month);
 
   return (
-    <div className="mb-6">
+    <div data-month={month} className="mb-6">
       <h3 className="font-display text-sm font-600 text-foreground mb-2">
         {MONTH_NAMES[month]}
       </h3>
@@ -277,6 +277,32 @@ export default function CalendarView({
   todayKey,
 }: CalendarViewProps) {
   const year = 2026;
+  const classicScrollRef = useRef<HTMLDivElement>(null);
+  const heatmapScrollRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to today's month when calendar opens
+  // biome-ignore lint/correctness/useExhaustiveDependencies: open triggers scroll
+  useEffect(() => {
+    if (!open) return;
+    const todayMonth = Number.parseInt(todayKey.split("-")[1], 10) - 1;
+    const scrollToMonth = (
+      containerRef: React.RefObject<HTMLDivElement | null>,
+    ) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const container = containerRef.current;
+          if (!container) return;
+          const monthEl = container.querySelector(
+            `[data-month="${todayMonth}"]`,
+          ) as HTMLElement | null;
+          if (!monthEl) return;
+          container.scrollTop = monthEl.offsetTop;
+        });
+      });
+    };
+    scrollToMonth(classicScrollRef);
+    scrollToMonth(heatmapScrollRef);
+  }, [open, todayKey]);
 
   return (
     <Dialog
@@ -287,7 +313,7 @@ export default function CalendarView({
     >
       <DialogContent
         data-ocid="calendar.modal"
-        className="max-w-lg w-full p-0 overflow-hidden max-h-[90vh]"
+        className="max-w-lg w-full p-0 overflow-hidden max-h-[90vh] flex flex-col"
       >
         <DialogHeader className="px-5 pt-5 pb-3 border-b border-border">
           <DialogTitle className="font-display text-lg font-600">
@@ -315,9 +341,12 @@ export default function CalendarView({
 
           <TabsContent
             value="classic"
-            className="flex-1 overflow-hidden mt-0 pt-3"
+            className="flex flex-col flex-1 overflow-hidden mt-0 pt-3 min-h-0"
           >
-            <ScrollArea className="h-full">
+            <div
+              ref={classicScrollRef}
+              className="flex-1 min-h-0 overflow-y-auto"
+            >
               <div className="px-5 pb-6">
                 {MONTH_NAMES.map((_name, i) => (
                   <ClassicMonth
@@ -329,14 +358,14 @@ export default function CalendarView({
                   />
                 ))}
               </div>
-            </ScrollArea>
+            </div>
           </TabsContent>
 
           <TabsContent
             value="heatmap"
-            className="flex-1 overflow-hidden mt-0 pt-3"
+            className="flex flex-col flex-1 overflow-hidden mt-0 pt-3 min-h-0"
           >
-            <div className="px-5 pb-2">
+            <div className="px-5 pb-2 flex-shrink-0">
               <div className="flex items-center gap-3 mb-3">
                 <p className="text-xs text-muted-foreground flex-1">
                   Color intensity = daily completion rate
@@ -358,7 +387,10 @@ export default function CalendarView({
                 </div>
               </div>
             </div>
-            <ScrollArea className="h-full">
+            <div
+              ref={heatmapScrollRef}
+              className="flex-1 min-h-0 overflow-y-auto"
+            >
               <div className="px-5 pb-6">
                 {MONTH_NAMES.map((_name, i) => (
                   <HeatmapMonth
@@ -370,7 +402,7 @@ export default function CalendarView({
                   />
                 ))}
               </div>
-            </ScrollArea>
+            </div>
           </TabsContent>
         </Tabs>
       </DialogContent>
