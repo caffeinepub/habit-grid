@@ -51,23 +51,40 @@ function DayCell({ date, data, todayKey }: DayCellProps) {
   const isToday = dk === todayKey;
   const isFuture = dk > todayKey;
 
+  // General tasks
   const applicableTasks = tasksForDate(data, date);
-  const total = applicableTasks.length;
-  const completed = applicableTasks.filter(
+  const generalTotal = applicableTasks.length;
+  const generalCompleted = applicableTasks.filter(
     (t) => data.completions[`${t.id}|${dk}`],
   ).length;
 
-  const allDone = total > 0 && completed === total;
-  const hasAny = total > 0;
+  // Daily tasks
+  const dailyTasksForDay = data.dailyTasks?.[dk] ?? [];
+  const dailyTotal = dailyTasksForDay.filter((t) => !t.deletedAt).length;
+  const dailyCompleted = dailyTasksForDay.filter(
+    (t) => !t.deletedAt && data.dailyCompletions?.[`${t.id}|${dk}`],
+  ).length;
+
+  const generalAllDone = generalTotal > 0 && generalCompleted === generalTotal;
+  const dailyAllDone = dailyTotal > 0 && dailyCompleted === dailyTotal;
+  const _allDone =
+    generalAllDone && dailyAllDone && (generalTotal > 0 || dailyTotal > 0);
+  // If only one type exists, all done means that type is complete
+  const perfectDay =
+    (generalTotal > 0 || dailyTotal > 0) &&
+    (generalTotal === 0 || generalAllDone) &&
+    (dailyTotal === 0 || dailyAllDone);
+
+  const hasAny = generalTotal > 0 || dailyTotal > 0;
 
   return (
     <div
       className={[
-        "rounded-lg p-1.5 min-h-[56px] flex flex-col items-center justify-start gap-0.5 border transition-colors",
+        "rounded-lg p-1.5 min-h-[60px] flex flex-col items-center justify-start gap-0.5 border transition-colors",
         isToday
           ? "border-accent-foreground/40 bg-accent"
           : "border-transparent",
-        allDone ? "bg-[oklch(var(--checked-bg))]" : "",
+        perfectDay && !isFuture ? "bg-[oklch(var(--checked-bg))]" : "",
         isFuture ? "opacity-40" : "",
         !hasAny && !isToday ? "opacity-30" : "",
       ]
@@ -79,14 +96,30 @@ function DayCell({ date, data, todayKey }: DayCellProps) {
       >
         {date.getDate()}
       </span>
-      {hasAny && (
+
+      {generalTotal > 0 && (
         <span
-          className={`text-[10px] leading-tight font-500 ${allDone ? "text-[oklch(var(--checked-mark))]" : "text-muted-foreground"}`}
+          className={`text-[9px] leading-tight font-500 ${
+            generalAllDone
+              ? "text-[oklch(var(--checked-mark))]"
+              : "text-muted-foreground"
+          }`}
         >
-          {completed}/{total}
+          G {generalCompleted}/{generalTotal}
         </span>
       )}
-      {allDone && (
+
+      {dailyTotal > 0 && (
+        <span
+          className={`text-[9px] leading-tight font-500 ${
+            dailyAllDone ? "text-sky-400" : "text-sky-400/60"
+          }`}
+        >
+          D {dailyCompleted}/{dailyTotal}
+        </span>
+      )}
+
+      {perfectDay && !isFuture && (
         <span className="text-[8px] leading-none text-[oklch(var(--checked-mark))] font-600">
           ✓
         </span>
@@ -128,7 +161,6 @@ function MonthGrid({
         ))}
       </div>
       {weeks.map((week, wi) => {
-        // Stable key: use the first non-null date in the week, else week index offset
         const firstDate = week.find((c) => c !== null);
         const weekKey = firstDate ? dateKey(firstDate) : `empty-${month}-${wi}`;
         return (
@@ -179,8 +211,11 @@ export default function CalendarView({
             Calendar Overview — {year}
           </DialogTitle>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Highlighted days: all tasks completed &nbsp;·&nbsp; Numbers show
-            completed / total tasks
+            <span className="text-muted-foreground">G = General tasks</span>
+            {" · "}
+            <span className="text-sky-400">D = Daily tasks</span>
+            {" · "}
+            Highlighted: all tasks complete
           </p>
         </DialogHeader>
         <ScrollArea className="h-[calc(90vh-80px)]">

@@ -5,6 +5,9 @@ import {
   CalendarDays,
   Check,
   Download,
+  Flame,
+  LayoutGrid,
+  ListTodo,
   LogOut,
   Moon,
   Plus,
@@ -13,17 +16,23 @@ import {
   Undo2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   type HabitData,
   type StoredTask,
   activeTasks,
+  bestStreak,
+  completionRate,
+  currentStreak,
   dateKey,
   getData,
+  perfectDaysThisMonth,
+  perfectDaysThisWeek,
   saveData,
 } from "../utils/habitStorage";
 import CalendarView from "./CalendarView";
+import DailyTasksPage from "./DailyTasksPage";
 import MessageOfDaySlide from "./MessageOfDaySlide";
 
 interface GridPageProps {
@@ -111,6 +120,8 @@ function computeMonthSpans(): MonthSpan[] {
 }
 const MONTH_SPANS = computeMonthSpans();
 
+type ActiveTab = "general" | "daily";
+
 export default function GridPage({
   username,
   darkMode,
@@ -125,6 +136,7 @@ export default function GridPage({
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [motdOpen, setMotdOpen] = useState(false);
   const [todayKey, setTodayKey] = useState(() => dateKey(new Date()));
+  const [activeTab, setActiveTab] = useState<ActiveTab>("general");
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const todayColRef = useRef<HTMLTableCellElement>(null);
@@ -139,6 +151,7 @@ export default function GridPage({
   // Scroll to today on mount and when todayKey changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: todayKey triggers re-scroll when day changes
   useEffect(() => {
+    if (activeTab !== "general") return;
     const scroll = () => {
       todayColRef.current?.scrollIntoView({
         behavior: "smooth",
@@ -148,7 +161,7 @@ export default function GridPage({
     };
     const timer = setTimeout(scroll, 100);
     return () => clearTimeout(timer);
-  }, [todayKey]);
+  }, [todayKey, activeTab]);
 
   // Auto-update todayKey at midnight
   useEffect(() => {
@@ -302,6 +315,26 @@ export default function GridPage({
 
   const tasks = activeTasks(data);
   const todayHasMessage = !!data.messages?.[todayKey]?.trim();
+
+  // Compute per-task stats (memoized to avoid re-computing on every render)
+  const taskStats = useMemo(() => {
+    return tasks.map((task) => ({
+      id: task.id,
+      streak: currentStreak(data, task.id, todayKey),
+      best: bestStreak(data, task.id),
+      rate: completionRate(data, task.id, todayKey),
+    }));
+  }, [data, tasks, todayKey]);
+
+  // Perfect day stats
+  const weekStats = useMemo(
+    () => perfectDaysThisWeek(data, tasks, todayKey),
+    [data, tasks, todayKey],
+  );
+  const monthStats = useMemo(
+    () => perfectDaysThisMonth(data, tasks, todayKey),
+    [data, tasks, todayKey],
+  );
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -469,287 +502,485 @@ export default function GridPage({
         </div>
       </header>
 
-      {/* Add task bar */}
-      <div className="border-b border-border bg-background px-4 py-3">
-        <form
-          className="flex gap-2 max-w-md"
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleAddTask();
-          }}
-        >
-          <Input
-            data-ocid="grid.add_task_input"
-            value={newTaskName}
-            onChange={(e) => setNewTaskName(e.target.value)}
-            placeholder="Add a new habit or task…"
-            className="h-9 text-sm"
-            maxLength={80}
-          />
-          <Button
-            data-ocid="grid.add_task_button"
-            type="submit"
-            size="sm"
-            disabled={!newTaskName.trim()}
-            className="h-9 px-3 gap-1.5 flex-shrink-0"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Add</span>
-          </Button>
-        </form>
-      </div>
-
-      {/* Grid */}
-      <main className="flex-1 overflow-hidden">
-        {tasks.length === 0 ? (
-          <div
-            data-ocid="grid.empty_state"
-            className="flex flex-col items-center justify-center h-full py-20 text-center px-4"
-          >
-            <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-border flex items-center justify-center mb-5">
-              <svg
-                width="28"
-                height="28"
-                viewBox="0 0 24 24"
-                fill="none"
-                className="text-muted-foreground"
-                aria-hidden="true"
+      {/* Main content area */}
+      {activeTab === "general" ? (
+        <>
+          {/* Add task bar */}
+          <div className="border-b border-border bg-background px-4 py-3">
+            <form
+              className="flex gap-2 max-w-md"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleAddTask();
+              }}
+            >
+              <Input
+                data-ocid="grid.add_task_input"
+                value={newTaskName}
+                onChange={(e) => setNewTaskName(e.target.value)}
+                placeholder="Add a new habit or task…"
+                className="h-9 text-sm"
+                maxLength={80}
+              />
+              <Button
+                data-ocid="grid.add_task_button"
+                type="submit"
+                size="sm"
+                disabled={!newTaskName.trim()}
+                className="h-9 px-3 gap-1.5 flex-shrink-0"
               >
-                <title>Empty grid</title>
-                <rect
-                  x="3"
-                  y="3"
-                  width="4"
-                  height="4"
-                  fill="currentColor"
-                  opacity="0.3"
-                />
-                <rect
-                  x="10"
-                  y="3"
-                  width="4"
-                  height="4"
-                  fill="currentColor"
-                  opacity="0.2"
-                />
-                <rect
-                  x="17"
-                  y="3"
-                  width="4"
-                  height="4"
-                  fill="currentColor"
-                  opacity="0.1"
-                />
-                <rect
-                  x="3"
-                  y="10"
-                  width="4"
-                  height="4"
-                  fill="currentColor"
-                  opacity="0.2"
-                />
-                <rect
-                  x="10"
-                  y="10"
-                  width="4"
-                  height="4"
-                  fill="currentColor"
-                  opacity="0.1"
-                />
-                <rect
-                  x="3"
-                  y="17"
-                  width="4"
-                  height="4"
-                  fill="currentColor"
-                  opacity="0.1"
-                />
-              </svg>
-            </div>
-            <h3 className="font-display text-lg font-500 text-foreground mb-1">
-              No habits yet
-            </h3>
-            <p className="text-sm text-muted-foreground max-w-xs">
-              Add your first habit above to start tracking it on the grid.
-            </p>
+                <Plus className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Add</span>
+              </Button>
+            </form>
           </div>
-        ) : (
-          <div
-            ref={scrollRef}
-            className="overflow-x-auto overflow-y-auto h-[calc(100vh-120px)]"
-          >
-            <table className="habit-table">
-              <thead>
-                {/* Month separator row */}
-                <tr>
-                  <th
-                    className="sticky-col bg-background border border-border"
-                    style={{ minWidth: 180 }}
-                  />
-                  {MONTH_SPANS.map((span) => (
-                    <th
-                      key={span.month}
-                      colSpan={span.colSpan}
-                      className="text-center border border-border py-1 bg-secondary"
-                    >
-                      <span className="text-[11px] font-600 text-foreground uppercase tracking-wide">
-                        {MONTH_ABBR[span.month]}
-                      </span>
-                    </th>
-                  ))}
-                </tr>
-                {/* Date headers */}
-                <tr>
-                  <th
-                    className="sticky-col bg-background text-left px-4 py-2 min-w-[180px] max-w-[220px] border border-border z-10"
-                    style={{ minWidth: 180 }}
-                  >
-                    <span className="text-xs font-500 text-muted-foreground uppercase tracking-wider">
-                      Task
-                    </span>
-                  </th>
-                  {dates.map((date, i) => {
-                    const dk = dateKey(date);
-                    const isToday = dk === todayKey;
-                    return (
-                      <th
-                        key={dk}
-                        ref={isToday ? todayColRef : undefined}
-                        data-date={dk}
-                        className={`text-center px-1 py-1.5 min-w-[44px] border border-border ${isToday ? "today-col-header" : ""}`}
-                        style={{ minWidth: 44 }}
-                        data-ocid={i === 0 ? "grid.table" : undefined}
-                      >
-                        <div className="flex flex-col items-center gap-0.5">
-                          <span
-                            className={`text-sm font-600 leading-none ${isToday ? "text-accent-foreground" : "text-foreground"}`}
-                          >
-                            {date.getDate()}
-                          </span>
-                          <span
-                            className={`text-[9px] ${isToday ? "text-accent-foreground" : "text-muted-foreground"}`}
-                          >
-                            {DAY_ABBR[date.getDay()]}
-                          </span>
-                          {isToday && (
-                            <span className="w-1 h-1 rounded-full bg-accent-foreground mt-0.5" />
-                          )}
-                        </div>
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {tasks.map((task, taskIdx) => {
-                  const taskStartKey = dateKey(new Date(task.createdAt));
-                  return (
-                    <tr
-                      key={task.id}
-                      data-ocid={`task.item.${taskIdx + 1}`}
-                      className="group"
-                    >
-                      {/* Sticky task name cell */}
-                      <td
-                        className="sticky-col bg-background border border-border px-3 py-0"
-                        style={{ minWidth: 180 }}
-                      >
-                        <div className="flex items-center gap-1.5 h-10">
-                          {editingTaskId === task.id ? (
-                            <Input
-                              value={editingName}
-                              onChange={(e) => setEditingName(e.target.value)}
-                              onBlur={() => commitRename(task.id)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") commitRename(task.id);
-                                if (e.key === "Escape") setEditingTaskId(null);
-                              }}
-                              autoFocus
-                              className="h-7 text-sm px-2 flex-1"
-                              maxLength={80}
-                            />
-                          ) : (
-                            <span
-                              className="text-sm text-foreground truncate flex-1 cursor-pointer select-none hover:text-primary transition-colors"
-                              onDoubleClick={() => startEditing(task)}
-                              title="Double-click to rename"
-                            >
-                              {task.name}
-                            </span>
-                          )}
-                          <button
-                            type="button"
-                            data-ocid={`task.delete_button.${taskIdx + 1}`}
-                            onClick={() => handleDeleteTask(task.id)}
-                            title="Delete task"
-                            className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-0.5 rounded hover:text-destructive text-muted-foreground flex-shrink-0"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
 
-                      {/* Date cells */}
-                      {dates.map((date) => {
+          {/* Perfect day stats bar */}
+          {tasks.length > 0 && (
+            <div
+              data-ocid="grid.stats.panel"
+              className="border-b border-border bg-background px-4 py-2 flex items-center gap-3 flex-wrap"
+            >
+              <span className="text-[11px] font-600 text-muted-foreground uppercase tracking-wider">
+                Perfect days
+              </span>
+              {/* Weekly chip */}
+              <span
+                data-ocid="grid.stats.week_card"
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-500 border ${
+                  weekStats.perfect === weekStats.total && weekStats.total > 0
+                    ? "bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400"
+                    : "bg-muted/50 border-border text-muted-foreground"
+                }`}
+              >
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <title>Week</title>
+                  <rect
+                    x="3"
+                    y="4"
+                    width="18"
+                    height="18"
+                    rx="2"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  />
+                  <path d="M3 10h18" stroke="currentColor" strokeWidth="2" />
+                  <path
+                    d="M8 2v4M16 2v4"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span>
+                  This week:{" "}
+                  <strong>
+                    {weekStats.perfect}/{weekStats.total}
+                  </strong>
+                </span>
+              </span>
+              {/* Monthly chip */}
+              <span
+                data-ocid="grid.stats.month_card"
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-500 border ${
+                  monthStats.perfect === monthStats.total &&
+                  monthStats.total > 0
+                    ? "bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400"
+                    : "bg-muted/50 border-border text-muted-foreground"
+                }`}
+              >
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <title>Month</title>
+                  <rect
+                    x="3"
+                    y="4"
+                    width="18"
+                    height="18"
+                    rx="2"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  />
+                  <path d="M3 10h18" stroke="currentColor" strokeWidth="2" />
+                  <path
+                    d="M8 2v4M16 2v4"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span>
+                  This month:{" "}
+                  <strong>
+                    {monthStats.perfect}/{monthStats.total}
+                  </strong>
+                </span>
+              </span>
+            </div>
+          )}
+
+          {/* Grid */}
+          <main className="flex-1 overflow-hidden">
+            {tasks.length === 0 ? (
+              <div
+                data-ocid="grid.empty_state"
+                className="flex flex-col items-center justify-center h-full py-20 text-center px-4"
+              >
+                <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-border flex items-center justify-center mb-5">
+                  <svg
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    className="text-muted-foreground"
+                    aria-hidden="true"
+                  >
+                    <title>Empty grid</title>
+                    <rect
+                      x="3"
+                      y="3"
+                      width="4"
+                      height="4"
+                      fill="currentColor"
+                      opacity="0.3"
+                    />
+                    <rect
+                      x="10"
+                      y="3"
+                      width="4"
+                      height="4"
+                      fill="currentColor"
+                      opacity="0.2"
+                    />
+                    <rect
+                      x="17"
+                      y="3"
+                      width="4"
+                      height="4"
+                      fill="currentColor"
+                      opacity="0.1"
+                    />
+                    <rect
+                      x="3"
+                      y="10"
+                      width="4"
+                      height="4"
+                      fill="currentColor"
+                      opacity="0.2"
+                    />
+                    <rect
+                      x="10"
+                      y="10"
+                      width="4"
+                      height="4"
+                      fill="currentColor"
+                      opacity="0.1"
+                    />
+                    <rect
+                      x="3"
+                      y="17"
+                      width="4"
+                      height="4"
+                      fill="currentColor"
+                      opacity="0.1"
+                    />
+                  </svg>
+                </div>
+                <h3 className="font-display text-lg font-500 text-foreground mb-1">
+                  No habits yet
+                </h3>
+                <p className="text-sm text-muted-foreground max-w-xs">
+                  Add your first habit above to start tracking it on the grid.
+                </p>
+              </div>
+            ) : (
+              <div
+                ref={scrollRef}
+                className="overflow-x-auto overflow-y-auto h-[calc(100vh-210px)]"
+              >
+                <table className="habit-table">
+                  <thead>
+                    {/* Month separator row */}
+                    <tr>
+                      <th
+                        className="sticky-col bg-background border border-border"
+                        style={{ minWidth: 210 }}
+                      />
+                      {MONTH_SPANS.map((span) => (
+                        <th
+                          key={span.month}
+                          colSpan={span.colSpan}
+                          className="text-center border border-border py-1 bg-secondary"
+                        >
+                          <span className="text-[11px] font-600 text-foreground uppercase tracking-wide">
+                            {MONTH_ABBR[span.month]}
+                          </span>
+                        </th>
+                      ))}
+                    </tr>
+                    {/* Date headers */}
+                    <tr>
+                      <th
+                        className="sticky-col bg-background text-left px-4 py-2 min-w-[210px] max-w-[240px] border border-border z-10"
+                        style={{ minWidth: 210 }}
+                      >
+                        <span className="text-xs font-500 text-muted-foreground uppercase tracking-wider">
+                          Task
+                        </span>
+                      </th>
+                      {dates.map((date, i) => {
                         const dk = dateKey(date);
                         const isToday = dk === todayKey;
-                        const isBefore = dk < taskStartKey;
-                        const key = compKey(task.id, dk);
-                        const cellState = getCellState(key);
                         return (
-                          <td
+                          <th
                             key={dk}
-                            className={`text-center border border-border p-0 ${
-                              isToday ? "today-col-cell" : ""
-                            } ${
-                              cellState === "checked" ? "checked-cell" : ""
-                            } ${isBefore ? "opacity-30 bg-muted/30" : ""}`}
-                            style={{ minWidth: 44, width: 44, height: 40 }}
+                            ref={isToday ? todayColRef : undefined}
+                            data-date={dk}
+                            className={`text-center px-1 py-1.5 min-w-[44px] border border-border ${isToday ? "today-col-header" : ""}`}
+                            style={{ minWidth: 44 }}
+                            data-ocid={i === 0 ? "grid.table" : undefined}
                           >
-                            {isBefore ? (
-                              <div className="w-full h-full" />
-                            ) : (
-                              <button
-                                type="button"
-                                className={`w-full h-full flex items-center justify-center transition-colors select-none ${
-                                  cellState === "checked"
-                                    ? "text-green-500 hover:text-green-600"
-                                    : cellState === "blocked"
-                                      ? "text-red-500 hover:text-red-600"
-                                      : "text-transparent hover:text-muted-foreground/30"
-                                }`}
-                                onClick={() => handleCellTap(task.id, dk)}
-                                aria-label={`${task.name} on ${dk}: ${
-                                  cellState === "checked"
-                                    ? "done"
-                                    : cellState === "blocked"
-                                      ? "blocked"
-                                      : "not done"
-                                }`}
-                                title="Tap to check/uncheck · Double-tap to mark as blocked"
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span
+                                className={`text-sm font-600 leading-none ${isToday ? "text-accent-foreground" : "text-foreground"}`}
                               >
-                                {cellState === "checked" && (
-                                  <Check className="w-4 h-4 stroke-[2.5]" />
-                                )}
-                                {cellState === "blocked" && (
-                                  <X className="w-4 h-4 stroke-[2.5]" />
-                                )}
-                                {cellState === "unchecked" && (
-                                  <Check className="w-4 h-4 stroke-[2]" />
-                                )}
-                              </button>
-                            )}
-                          </td>
+                                {date.getDate()}
+                              </span>
+                              <span
+                                className={`text-[9px] ${isToday ? "text-accent-foreground" : "text-muted-foreground"}`}
+                              >
+                                {DAY_ABBR[date.getDay()]}
+                              </span>
+                              {isToday && (
+                                <span className="w-1 h-1 rounded-full bg-accent-foreground mt-0.5" />
+                              )}
+                            </div>
+                          </th>
                         );
                       })}
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </main>
+                  </thead>
+                  <tbody>
+                    {tasks.map((task, taskIdx) => {
+                      const taskStartKey = dateKey(new Date(task.createdAt));
+                      const stats = taskStats[taskIdx];
+                      return (
+                        <tr
+                          key={task.id}
+                          data-ocid={`task.item.${taskIdx + 1}`}
+                          className="group"
+                        >
+                          {/* Sticky task name cell */}
+                          <td
+                            className="sticky-col bg-background border border-border px-3 py-0"
+                            style={{ minWidth: 210 }}
+                          >
+                            <div className="flex items-start gap-1.5 py-1.5 min-h-[48px]">
+                              <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                                {editingTaskId === task.id ? (
+                                  <Input
+                                    value={editingName}
+                                    onChange={(e) =>
+                                      setEditingName(e.target.value)
+                                    }
+                                    onBlur={() => commitRename(task.id)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter")
+                                        commitRename(task.id);
+                                      if (e.key === "Escape")
+                                        setEditingTaskId(null);
+                                    }}
+                                    autoFocus
+                                    className="h-7 text-sm px-2"
+                                    maxLength={80}
+                                  />
+                                ) : (
+                                  <span
+                                    className="text-sm text-foreground truncate cursor-pointer select-none hover:text-primary transition-colors leading-snug"
+                                    onDoubleClick={() => startEditing(task)}
+                                    title="Double-click to rename"
+                                  >
+                                    {task.name}
+                                  </span>
+                                )}
+                                {/* Stats row */}
+                                {stats && (
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {/* Streak */}
+                                    <span className="inline-flex items-center gap-0.5 text-[10px] text-orange-500 font-600">
+                                      <Flame className="w-2.5 h-2.5" />
+                                      {stats.streak}
+                                    </span>
+                                    {/* Best streak */}
+                                    <span className="text-[10px] text-muted-foreground">
+                                      Best: {stats.best}
+                                    </span>
+                                    {/* Divider */}
+                                    <span className="text-[10px] text-muted-foreground/40">
+                                      ·
+                                    </span>
+                                    {/* Completion % */}
+                                    <span
+                                      className={`text-[10px] font-500 px-1 py-0 rounded ${
+                                        stats.rate >= 80
+                                          ? "text-green-600 bg-green-500/10"
+                                          : stats.rate >= 50
+                                            ? "text-yellow-600 bg-yellow-500/10"
+                                            : "text-muted-foreground bg-muted/50"
+                                      }`}
+                                    >
+                                      {stats.rate}%
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                data-ocid={`task.delete_button.${taskIdx + 1}`}
+                                onClick={() => handleDeleteTask(task.id)}
+                                title="Delete task"
+                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-0.5 rounded hover:text-destructive text-muted-foreground flex-shrink-0 mt-0.5"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+
+                          {/* Date cells */}
+                          {dates.map((date) => {
+                            const dk = dateKey(date);
+                            const isToday = dk === todayKey;
+                            const isBefore = dk < taskStartKey;
+                            const key = compKey(task.id, dk);
+                            const cellState = getCellState(key);
+                            return (
+                              <td
+                                key={dk}
+                                className={`text-center border border-border p-0 ${
+                                  isToday ? "today-col-cell" : ""
+                                } ${
+                                  cellState === "checked" ? "checked-cell" : ""
+                                } ${isBefore ? "opacity-30 bg-muted/30" : ""}`}
+                                style={{ minWidth: 44, width: 44, height: 48 }}
+                              >
+                                {isBefore ? (
+                                  <div className="w-full h-full" />
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className={`w-full h-full flex items-center justify-center transition-colors select-none ${
+                                      cellState === "checked"
+                                        ? "text-green-500 hover:text-green-600"
+                                        : cellState === "blocked"
+                                          ? "text-red-500 hover:text-red-600"
+                                          : "text-transparent hover:text-muted-foreground/30"
+                                    }`}
+                                    onClick={() => handleCellTap(task.id, dk)}
+                                    aria-label={`${task.name} on ${dk}: ${
+                                      cellState === "checked"
+                                        ? "done"
+                                        : cellState === "blocked"
+                                          ? "blocked"
+                                          : "not done"
+                                    }`}
+                                    title="Tap to check/uncheck · Double-tap to mark as blocked"
+                                  >
+                                    {cellState === "checked" && (
+                                      <Check className="w-4 h-4 stroke-[2.5]" />
+                                    )}
+                                    {cellState === "blocked" && (
+                                      <X className="w-4 h-4 stroke-[2.5]" />
+                                    )}
+                                    {cellState === "unchecked" && (
+                                      <Check className="w-4 h-4 stroke-[2]" />
+                                    )}
+                                  </button>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </main>
+        </>
+      ) : (
+        <main className="flex-1 overflow-hidden flex flex-col">
+          <DailyTasksPage
+            username={username}
+            data={data}
+            onPersist={persist}
+            todayKey={todayKey}
+          />
+        </main>
+      )}
+
+      {/* Bottom tab bar */}
+      <nav className="sticky bottom-0 z-20 bg-background border-t border-border">
+        <div className="flex">
+          <button
+            type="button"
+            data-ocid="tabs.general_tab"
+            onClick={() => setActiveTab("general")}
+            className={[
+              "flex-1 flex flex-col items-center justify-center gap-1 py-3 text-xs font-500 transition-colors",
+              activeTab === "general"
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground/70",
+            ].join(" ")}
+          >
+            <LayoutGrid
+              className={`w-5 h-5 ${
+                activeTab === "general"
+                  ? "text-foreground"
+                  : "text-muted-foreground"
+              }`}
+            />
+            <span>General Tasks</span>
+            {activeTab === "general" && (
+              <span className="absolute bottom-0 h-0.5 w-12 rounded-full bg-foreground" />
+            )}
+          </button>
+          <button
+            type="button"
+            data-ocid="tabs.daily_tab"
+            onClick={() => setActiveTab("daily")}
+            className={[
+              "flex-1 flex flex-col items-center justify-center gap-1 py-3 text-xs font-500 transition-colors relative",
+              activeTab === "daily"
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground/70",
+            ].join(" ")}
+          >
+            <ListTodo
+              className={`w-5 h-5 ${
+                activeTab === "daily"
+                  ? "text-foreground"
+                  : "text-muted-foreground"
+              }`}
+            />
+            <span>Daily Tasks</span>
+            {activeTab === "daily" && (
+              <span className="absolute bottom-0 h-0.5 w-12 rounded-full bg-foreground" />
+            )}
+          </button>
+        </div>
+      </nav>
 
       {/* Footer */}
       <footer className="border-t border-border py-3 px-4 text-center">
