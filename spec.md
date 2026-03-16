@@ -1,38 +1,34 @@
-# Habit Grid
+# Habit Grid — Batch 2
 
 ## Current State
-A full-year habit tracking grid app with:
-- General Tasks grid (all 365 days of 2026)
-- Daily Tasks (day-specific, swipeable)
-- Calendar overview with G/D ratios per day
-- LocalStorage-based persistence per username
-- Dark mode (deep navy)
-- Message of the Day slide
-- Double-tap red cross (blocked) checkbox behavior
+The app has a full-year habit grid with authentication, persistent localStorage storage, streaks/completion stats per task row, daily tasks tab, calendar overview with G/D ratios per day, and a message-of-day slide. CalendarView renders a monthly grid via a Dialog.
 
 ## Requested Changes (Diff)
 
 ### Add
-- **Streak counter** per task row: current streak (consecutive checked days up to today) and best streak (longest ever), displayed inline next to the task name in the sticky column
-- **Completion percentage** per task row: % of days from task creation to today that were checked (not blocked), shown as a small badge in the sticky column
-- **Weekly perfect day score**: count of days this week (Mon-Sun) where all general tasks were completed, shown as a badge/chip in the add-task bar area or top of the grid
-- **Monthly perfect day score**: count of perfect days this calendar month, shown alongside the weekly score
+- **Task color tags**: full color picker (HTML color input or palette) appears on hover of each task row in the grid. Selected color stored per task in HabitData and applied as a tint to the row background.
+- **Heatmap view**: replaces the existing monthly calendar grid inside CalendarView. Each day rendered as a colored cell where intensity represents daily completion rate (0% = empty, 100% = full color). GitHub-contribution-graph style, arranged by month rows.
+- **Insights panel**: new slide/Dialog accessible via a new icon (e.g. BarChart2) in the top bar. Contains:
+  - Weak day detector: shows which weekday (Mon–Sun) has the lowest completion rate across all tasks
+  - Best month: which month of 2026 had the highest average completion rate
+  - Task difficulty ranking: all active tasks sorted by miss rate (highest miss = hardest)
+- **Mini sparkline per task row**: small SVG inline chart showing last 7 days of completion (checked/missed/blocked) per task in the general grid
+- **Task color storage**: extend HabitData to include `taskColors: Record<string, string>` (taskId -> hex color)
 
 ### Modify
-- `GridPage.tsx`: Add stat computations (streak, best streak, completion %) using existing completions/blocked data. Render stats in sticky task name cell. Add weekly/monthly perfect day score chips above or near the grid header.
-- `habitStorage.ts`: Add helper functions for computing streaks and completion stats (pure functions, no storage changes needed)
+- `habitStorage.ts`: add `taskColors` field to HabitData, update getData/saveData defaults
+- `CalendarView.tsx`: replace month-grid DayCells with heatmap cells (colored squares with intensity based on completion rate). Keep header, scroll area, and G/D legend.
+- `GridPage.tsx`: add color picker on task row hover, add sparkline SVG per row, add Insights panel icon in top bar, wire InsightsPanel component
 
 ### Remove
 - Nothing removed
 
 ## Implementation Plan
-1. Add helper functions in `habitStorage.ts`:
-   - `currentStreak(data, taskId, todayKey)`: count consecutive checked days going backwards from today
-   - `bestStreak(data, taskId)`: longest consecutive checked streak ever
-   - `completionRate(data, taskId, todayKey)`: % of days from createdAt to today that are checked
-   - `perfectDaysThisWeek(data, tasks, todayKey)`: count of days this Mon-Sun where all tasks were checked
-   - `perfectDaysThisMonth(data, tasks, todayKey)`: count of days this calendar month where all tasks were checked
-2. In `GridPage.tsx`:
-   - Compute per-task stats and display current streak, best streak, completion % in the sticky task name column (compact, small text)
-   - Compute and display weekly/monthly perfect day chips near the grid (above the table or in the add-task bar)
-   - Keep layout compact -- stats should not make the sticky column too wide
+1. Update `habitStorage.ts`: add `taskColors` to HabitData interface and getData defaults
+2. Create `InsightsPanel.tsx`: Dialog with weak day detector, best month, task difficulty ranking computed from HabitData
+3. Update `CalendarView.tsx`: replace DayCell with HeatmapCell showing color intensity by completion rate
+4. Update `GridPage.tsx`:
+   - Add color picker on task row hover (save to taskColors)
+   - Add mini sparkline SVG per task row (last 7 days)
+   - Add Insights icon button in top bar
+   - Render InsightsPanel component

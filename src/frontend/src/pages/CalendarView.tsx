@@ -40,95 +40,85 @@ function getDaysInMonth(year: number, month: number): Date[] {
   return days;
 }
 
-interface DayCellProps {
-  date: Date;
+/** Compute completion rate (0–1) for general tasks on a given date */
+function dayCompletionRate(data: HabitData, date: Date): number {
+  const dk = dateKey(date);
+  const dayTasks = tasksForDate(data, date);
+  if (dayTasks.length === 0) return 0;
+  const done = dayTasks.filter((t) => data.completions[`${t.id}|${dk}`]).length;
+  return done / dayTasks.length;
+}
+
+/** Interpolate a green heatmap color from rate 0–1 */
+function heatmapColor(rate: number, isDark: boolean): string {
+  if (rate === 0) return isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
+  // OKLCH-inspired green scale: from pale to vivid
+  const alpha = 0.15 + rate * 0.85;
+  return `rgba(34, 197, 94, ${alpha.toFixed(2)})`;
+}
+
+interface HeatmapCellProps {
+  date: Date | null;
   data: HabitData;
   todayKey: string;
 }
 
-function DayCell({ date, data, todayKey }: DayCellProps) {
+function HeatmapCell({ date, data, todayKey }: HeatmapCellProps) {
+  if (!date) return <div />;
+
   const dk = dateKey(date);
   const isToday = dk === todayKey;
   const isFuture = dk > todayKey;
 
-  // General tasks
-  const applicableTasks = tasksForDate(data, date);
-  const generalTotal = applicableTasks.length;
-  const generalCompleted = applicableTasks.filter(
-    (t) => data.completions[`${t.id}|${dk}`],
-  ).length;
+  const rate = isFuture ? 0 : dayCompletionRate(data, date);
+  const dayTasks = tasksForDate(data, date);
+  const done = isFuture
+    ? 0
+    : dayTasks.filter((t) => data.completions[`${t.id}|${dk}`]).length;
 
-  // Daily tasks
+  // Daily tasks for tooltip
   const dailyTasksForDay = data.dailyTasks?.[dk] ?? [];
   const dailyTotal = dailyTasksForDay.filter((t) => !t.deletedAt).length;
-  const dailyCompleted = dailyTasksForDay.filter(
+  const dailyDone = dailyTasksForDay.filter(
     (t) => !t.deletedAt && data.dailyCompletions?.[`${t.id}|${dk}`],
   ).length;
 
-  const generalAllDone = generalTotal > 0 && generalCompleted === generalTotal;
-  const dailyAllDone = dailyTotal > 0 && dailyCompleted === dailyTotal;
-  const _allDone =
-    generalAllDone && dailyAllDone && (generalTotal > 0 || dailyTotal > 0);
-  // If only one type exists, all done means that type is complete
-  const perfectDay =
-    (generalTotal > 0 || dailyTotal > 0) &&
-    (generalTotal === 0 || generalAllDone) &&
-    (dailyTotal === 0 || dailyAllDone);
-
-  const hasAny = generalTotal > 0 || dailyTotal > 0;
+  const tooltipParts = [
+    `${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+  ];
+  if (dayTasks.length > 0)
+    tooltipParts.push(`General: ${done}/${dayTasks.length}`);
+  if (dailyTotal > 0) tooltipParts.push(`Daily: ${dailyDone}/${dailyTotal}`);
+  if (!isFuture && dayTasks.length === 0 && dailyTotal === 0)
+    tooltipParts.push("No tasks");
+  const tooltip = tooltipParts.join(" · ");
 
   return (
     <div
+      title={tooltip}
       className={[
-        "rounded-lg p-1.5 min-h-[60px] flex flex-col items-center justify-start gap-0.5 border transition-colors",
+        "w-full aspect-square rounded-sm transition-colors cursor-default",
         isToday
-          ? "border-accent-foreground/40 bg-accent"
-          : "border-transparent",
-        perfectDay && !isFuture ? "bg-[oklch(var(--checked-bg))]" : "",
-        isFuture ? "opacity-40" : "",
-        !hasAny && !isToday ? "opacity-30" : "",
+          ? "ring-2 ring-foreground/60 ring-offset-1 ring-offset-background"
+          : "",
+        isFuture ? "opacity-30" : "",
       ]
         .filter(Boolean)
         .join(" ")}
+      style={{
+        backgroundColor: isFuture
+          ? "rgba(128,128,128,0.08)"
+          : heatmapColor(rate, false),
+      }}
     >
-      <span
-        className={`text-xs font-600 leading-none ${isToday ? "text-accent-foreground" : "text-foreground"}`}
-      >
-        {date.getDate()}
+      <span className="sr-only">
+        {date.getDate()} — {tooltip}
       </span>
-
-      {generalTotal > 0 && (
-        <span
-          className={`text-[9px] leading-tight font-500 ${
-            generalAllDone
-              ? "text-[oklch(var(--checked-mark))]"
-              : "text-muted-foreground"
-          }`}
-        >
-          G {generalCompleted}/{generalTotal}
-        </span>
-      )}
-
-      {dailyTotal > 0 && (
-        <span
-          className={`text-[9px] leading-tight font-500 ${
-            dailyAllDone ? "text-sky-400" : "text-sky-400/60"
-          }`}
-        >
-          D {dailyCompleted}/{dailyTotal}
-        </span>
-      )}
-
-      {perfectDay && !isFuture && (
-        <span className="text-[8px] leading-none text-[oklch(var(--checked-mark))] font-600">
-          ✓
-        </span>
-      )}
     </div>
   );
 }
 
-function MonthGrid({
+function HeatmapMonth({
   year,
   month,
   data,
@@ -140,49 +130,36 @@ function MonthGrid({
   const cells: (Date | null)[] = [...Array(firstDow).fill(null), ...days];
   while (cells.length % 7 !== 0) cells.push(null);
 
-  const weeks: (Date | null)[][] = [];
-  for (let i = 0; i < cells.length; i += 7) {
-    weeks.push(cells.slice(i, i + 7));
-  }
-
   return (
     <div className="mb-6">
-      <h3 className="font-display text-base font-600 text-foreground mb-2 px-1">
+      <h3 className="font-display text-sm font-600 text-foreground mb-2">
         {MONTH_NAMES[month]}
       </h3>
+      {/* Day-of-week labels */}
       <div className="grid grid-cols-7 gap-1 mb-1">
         {DAY_ABBR.map((d) => (
           <div
             key={d}
-            className="text-center text-[10px] font-500 text-muted-foreground"
+            className="text-center text-[9px] font-500 text-muted-foreground leading-none"
           >
             {d}
           </div>
         ))}
       </div>
-      {weeks.map((week, wi) => {
-        const firstDate = week.find((c) => c !== null);
-        const weekKey = firstDate ? dateKey(firstDate) : `empty-${month}-${wi}`;
-        return (
-          <div key={weekKey} className="grid grid-cols-7 gap-1 mb-1">
-            {week.map((date, di) => {
-              const cellKey = date
-                ? dateKey(date)
-                : `null-${month}-${wi}-${di}`;
-              return date ? (
-                <DayCell
-                  key={cellKey}
-                  date={date}
-                  data={data}
-                  todayKey={todayKey}
-                />
-              ) : (
-                <div key={cellKey} />
-              );
-            })}
-          </div>
-        );
-      })}
+      {/* Heatmap grid */}
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((date, i) => {
+          const key = date ? dateKey(date) : `null-${month}-${i}`;
+          return (
+            <HeatmapCell
+              key={key}
+              date={date}
+              data={data}
+              todayKey={todayKey}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -208,20 +185,30 @@ export default function CalendarView({
       >
         <DialogHeader className="px-5 pt-5 pb-3 border-b border-border">
           <DialogTitle className="font-display text-lg font-600">
-            Calendar Overview — {year}
+            Heatmap — {year}
           </DialogTitle>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            <span className="text-muted-foreground">G = General tasks</span>
-            {" · "}
-            <span className="text-sky-400">D = Daily tasks</span>
-            {" · "}
-            Highlighted: all tasks complete
-          </p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-xs text-muted-foreground">
+              Color intensity = daily completion rate for general tasks
+            </p>
+            {/* Legend */}
+            <div className="flex items-center gap-1 ml-auto flex-shrink-0">
+              <span className="text-[10px] text-muted-foreground">Less</span>
+              {[0.05, 0.25, 0.5, 0.75, 1].map((r) => (
+                <div
+                  key={r}
+                  className="w-3 h-3 rounded-sm"
+                  style={{ backgroundColor: heatmapColor(r, false) }}
+                />
+              ))}
+              <span className="text-[10px] text-muted-foreground">More</span>
+            </div>
+          </div>
         </DialogHeader>
-        <ScrollArea className="h-[calc(90vh-80px)]">
+        <ScrollArea className="h-[calc(90vh-90px)]">
           <div className="px-5 pt-4 pb-6">
             {MONTH_NAMES.map((name, i) => (
-              <MonthGrid
+              <HeatmapMonth
                 key={name}
                 year={year}
                 month={i}

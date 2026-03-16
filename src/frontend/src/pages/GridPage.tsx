@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  BarChart2,
   BookOpen,
   CalendarDays,
   Check,
@@ -33,6 +34,7 @@ import {
 } from "../utils/habitStorage";
 import CalendarView from "./CalendarView";
 import DailyTasksPage from "./DailyTasksPage";
+import InsightsPanel from "./InsightsPanel";
 import MessageOfDaySlide from "./MessageOfDaySlide";
 
 interface GridPageProps {
@@ -122,6 +124,64 @@ const MONTH_SPANS = computeMonthSpans();
 
 type ActiveTab = "general" | "daily";
 
+/** Mini sparkline: last 7 days for a task */
+function Sparkline({
+  data,
+  taskId,
+  todayKey,
+}: { data: HabitData; taskId: string; todayKey: string }) {
+  const days: { dk: string; state: "checked" | "blocked" | "empty" }[] = [];
+  const cur = new Date(`${todayKey}T00:00:00`);
+  const task = data.tasks.find((t) => t.id === taskId);
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(cur);
+    d.setDate(d.getDate() - i);
+    const dk = dateKey(d);
+    if (!task || dk < dateKey(new Date(task.createdAt))) {
+      days.push({ dk, state: "empty" });
+    } else if (data.completions[`${taskId}|${dk}`]) {
+      days.push({ dk, state: "checked" });
+    } else if (data.blocked[`${taskId}|${dk}`]) {
+      days.push({ dk, state: "blocked" });
+    } else {
+      days.push({ dk, state: "empty" });
+    }
+  }
+
+  return (
+    <svg
+      width="56"
+      height="10"
+      viewBox="0 0 56 10"
+      aria-hidden="true"
+      className="flex-shrink-0"
+    >
+      {days.map(({ dk, state }, i) => {
+        const x = i * 8;
+        const color =
+          state === "checked"
+            ? "#22c55e"
+            : state === "blocked"
+              ? "#ef4444"
+              : "currentColor";
+        const opacity = state === "empty" ? 0.15 : 1;
+        return (
+          <rect
+            key={dk}
+            x={x}
+            y={0}
+            width={6}
+            height={10}
+            rx={1.5}
+            fill={color}
+            opacity={opacity}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
 export default function GridPage({
   username,
   darkMode,
@@ -134,12 +194,17 @@ export default function GridPage({
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [insightsOpen, setInsightsOpen] = useState(false);
   const [motdOpen, setMotdOpen] = useState(false);
   const [todayKey, setTodayKey] = useState(() => dateKey(new Date()));
   const [activeTab, setActiveTab] = useState<ActiveTab>("general");
+  const [hoveredColorTaskId, setHoveredColorTaskId] = useState<string | null>(
+    null,
+  );
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const todayColRef = useRef<HTMLTableCellElement>(null);
+  const colorInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   // Track last tap time per cell key for double-tap detection
   const lastTapRef = useRef<Record<string, number>>({});
 
@@ -313,6 +378,13 @@ export default function GridPage({
     toast.success("Message saved");
   }
 
+  function handleColorChange(taskId: string, color: string) {
+    persist((prev) => ({
+      ...prev,
+      taskColors: { ...(prev.taskColors ?? {}), [taskId]: color },
+    }));
+  }
+
   const tasks = activeTasks(data);
   const todayHasMessage = !!data.messages?.[todayKey]?.trim();
 
@@ -458,6 +530,17 @@ export default function GridPage({
               <Moon className="w-3.5 h-3.5" />
             )}
           </Button>
+
+          {/* Insights button */}
+          <button
+            data-ocid="insights.open_modal_button"
+            type="button"
+            onClick={() => setInsightsOpen(true)}
+            title="Insights"
+            className="w-9 h-9 rounded-full bg-foreground/8 hover:bg-foreground/15 border border-border flex items-center justify-center transition-colors flex-shrink-0"
+          >
+            <BarChart2 className="w-4 h-4 text-foreground" />
+          </button>
 
           {/* Message of the Day button */}
           <button
@@ -630,20 +713,15 @@ export default function GridPage({
             </div>
           )}
 
-          {/* Grid */}
-          <main className="flex-1 overflow-hidden">
+          <main className="flex-1 overflow-hidden flex flex-col">
             {tasks.length === 0 ? (
-              <div
-                data-ocid="grid.empty_state"
-                className="flex flex-col items-center justify-center h-full py-20 text-center px-4"
-              >
-                <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-border flex items-center justify-center mb-5">
+              <div className="flex-1 flex flex-col items-center justify-center py-20 px-4 text-center">
+                <div className="w-12 h-12 rounded-2xl bg-foreground/5 flex items-center justify-center mb-4">
                   <svg
-                    width="28"
-                    height="28"
+                    width="22"
+                    height="22"
                     viewBox="0 0 24 24"
                     fill="none"
-                    className="text-muted-foreground"
                     aria-hidden="true"
                   >
                     <title>Empty grid</title>
@@ -653,7 +731,7 @@ export default function GridPage({
                       width="4"
                       height="4"
                       fill="currentColor"
-                      opacity="0.3"
+                      opacity="0.2"
                     />
                     <rect
                       x="10"
@@ -669,7 +747,7 @@ export default function GridPage({
                       width="4"
                       height="4"
                       fill="currentColor"
-                      opacity="0.1"
+                      opacity="0.2"
                     />
                     <rect
                       x="3"
@@ -685,7 +763,15 @@ export default function GridPage({
                       width="4"
                       height="4"
                       fill="currentColor"
-                      opacity="0.1"
+                      opacity="0.4"
+                    />
+                    <rect
+                      x="17"
+                      y="10"
+                      width="4"
+                      height="4"
+                      fill="currentColor"
+                      opacity="0.2"
                     />
                     <rect
                       x="3"
@@ -693,7 +779,23 @@ export default function GridPage({
                       width="4"
                       height="4"
                       fill="currentColor"
-                      opacity="0.1"
+                      opacity="0.2"
+                    />
+                    <rect
+                      x="10"
+                      y="17"
+                      width="4"
+                      height="4"
+                      fill="currentColor"
+                      opacity="0.2"
+                    />
+                    <rect
+                      x="17"
+                      y="17"
+                      width="4"
+                      height="4"
+                      fill="currentColor"
+                      opacity="0.2"
                     />
                   </svg>
                 </div>
@@ -715,7 +817,7 @@ export default function GridPage({
                     <tr>
                       <th
                         className="sticky-col bg-background border border-border"
-                        style={{ minWidth: 210 }}
+                        style={{ minWidth: 220 }}
                       />
                       {MONTH_SPANS.map((span) => (
                         <th
@@ -732,8 +834,8 @@ export default function GridPage({
                     {/* Date headers */}
                     <tr>
                       <th
-                        className="sticky-col bg-background text-left px-4 py-2 min-w-[210px] max-w-[240px] border border-border z-10"
-                        style={{ minWidth: 210 }}
+                        className="sticky-col bg-background text-left px-4 py-2 min-w-[220px] max-w-[250px] border border-border z-10"
+                        style={{ minWidth: 220 }}
                       >
                         <span className="text-xs font-500 text-muted-foreground uppercase tracking-wider">
                           Task
@@ -747,18 +849,28 @@ export default function GridPage({
                             key={dk}
                             ref={isToday ? todayColRef : undefined}
                             data-date={dk}
-                            className={`text-center px-1 py-1.5 min-w-[44px] border border-border ${isToday ? "today-col-header" : ""}`}
+                            className={`text-center px-1 py-1.5 min-w-[44px] border border-border ${
+                              isToday ? "today-col-header" : ""
+                            }`}
                             style={{ minWidth: 44 }}
                             data-ocid={i === 0 ? "grid.table" : undefined}
                           >
                             <div className="flex flex-col items-center gap-0.5">
                               <span
-                                className={`text-sm font-600 leading-none ${isToday ? "text-accent-foreground" : "text-foreground"}`}
+                                className={`text-sm font-600 leading-none ${
+                                  isToday
+                                    ? "text-accent-foreground"
+                                    : "text-foreground"
+                                }`}
                               >
                                 {date.getDate()}
                               </span>
                               <span
-                                className={`text-[9px] ${isToday ? "text-accent-foreground" : "text-muted-foreground"}`}
+                                className={`text-[9px] ${
+                                  isToday
+                                    ? "text-accent-foreground"
+                                    : "text-muted-foreground"
+                                }`}
                               >
                                 {DAY_ABBR[date.getDay()]}
                               </span>
@@ -775,6 +887,15 @@ export default function GridPage({
                     {tasks.map((task, taskIdx) => {
                       const taskStartKey = dateKey(new Date(task.createdAt));
                       const stats = taskStats[taskIdx];
+                      const taskColor = data.taskColors?.[task.id];
+
+                      // Convert hex color to a subtle background tint
+                      const rowStyle: React.CSSProperties = taskColor
+                        ? {
+                            backgroundColor: `${taskColor}26`, // 15% opacity
+                          }
+                        : {};
+
                       return (
                         <tr
                           key={task.id}
@@ -783,10 +904,12 @@ export default function GridPage({
                         >
                           {/* Sticky task name cell */}
                           <td
-                            className="sticky-col bg-background border border-border px-3 py-0"
-                            style={{ minWidth: 210 }}
+                            className="sticky-col border border-border px-3 py-0"
+                            style={{ minWidth: 220, ...rowStyle }}
+                            onMouseEnter={() => setHoveredColorTaskId(task.id)}
+                            onMouseLeave={() => setHoveredColorTaskId(null)}
                           >
-                            <div className="flex items-start gap-1.5 py-1.5 min-h-[48px]">
+                            <div className="flex items-start gap-1.5 py-1.5 min-h-[56px]">
                               <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                                 {editingTaskId === task.id ? (
                                   <Input
@@ -844,16 +967,52 @@ export default function GridPage({
                                     </span>
                                   </div>
                                 )}
+                                {/* Sparkline */}
+                                <Sparkline
+                                  data={data}
+                                  taskId={task.id}
+                                  todayKey={todayKey}
+                                />
                               </div>
-                              <button
-                                type="button"
-                                data-ocid={`task.delete_button.${taskIdx + 1}`}
-                                onClick={() => handleDeleteTask(task.id)}
-                                title="Delete task"
-                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-0.5 rounded hover:text-destructive text-muted-foreground flex-shrink-0 mt-0.5"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+
+                              {/* Color swatch button (shows on hover) */}
+                              <div className="flex flex-col gap-0.5 items-center">
+                                {hoveredColorTaskId === task.id && (
+                                  <button
+                                    type="button"
+                                    data-ocid={`task.edit_button.${taskIdx + 1}`}
+                                    title="Pick task color"
+                                    onClick={() =>
+                                      colorInputRefs.current[task.id]?.click()
+                                    }
+                                    className="w-5 h-5 rounded-full border-2 border-border/60 hover:border-foreground/40 transition-colors flex-shrink-0 cursor-pointer shadow-sm"
+                                    style={{
+                                      backgroundColor: taskColor ?? "#888888",
+                                    }}
+                                  />
+                                )}
+                                <input
+                                  ref={(el) => {
+                                    colorInputRefs.current[task.id] = el;
+                                  }}
+                                  type="color"
+                                  className="sr-only"
+                                  value={taskColor ?? "#888888"}
+                                  onChange={(e) =>
+                                    handleColorChange(task.id, e.target.value)
+                                  }
+                                  aria-label={`Color for ${task.name}`}
+                                />
+                                <button
+                                  type="button"
+                                  data-ocid={`task.delete_button.${taskIdx + 1}`}
+                                  onClick={() => handleDeleteTask(task.id)}
+                                  title="Delete task"
+                                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-0.5 rounded hover:text-destructive text-muted-foreground flex-shrink-0 mt-0.5"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
                           </td>
 
@@ -1001,6 +1160,14 @@ export default function GridPage({
       <CalendarView
         open={calendarOpen}
         onClose={() => setCalendarOpen(false)}
+        data={data}
+        todayKey={todayKey}
+      />
+
+      {/* Insights panel */}
+      <InsightsPanel
+        open={insightsOpen}
+        onClose={() => setInsightsOpen(false)}
         data={data}
         todayKey={todayKey}
       />

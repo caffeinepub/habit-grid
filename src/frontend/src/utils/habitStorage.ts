@@ -56,6 +56,7 @@ export interface HabitData {
   dailyTasks: Record<string, DailyTask[]>; // dateKey -> tasks created on that day
   dailyCompletions: Record<string, boolean>; // "taskId|dateKey" -> true
   dailyBlocked: Record<string, boolean>; // "taskId|dateKey" -> true
+  taskColors: Record<string, string>; // taskId -> hex color string
 }
 
 function dataKey(username: string): string {
@@ -73,6 +74,7 @@ export function getData(username: string): HabitData {
       dailyTasks: {},
       dailyCompletions: {},
       dailyBlocked: {},
+      taskColors: {},
     };
   try {
     const parsed = JSON.parse(raw) as HabitData;
@@ -81,6 +83,7 @@ export function getData(username: string): HabitData {
     if (!parsed.dailyTasks) parsed.dailyTasks = {};
     if (!parsed.dailyCompletions) parsed.dailyCompletions = {};
     if (!parsed.dailyBlocked) parsed.dailyBlocked = {};
+    if (!parsed.taskColors) parsed.taskColors = {};
     return parsed;
   } catch {
     return {
@@ -91,6 +94,7 @@ export function getData(username: string): HabitData {
       dailyTasks: {},
       dailyCompletions: {},
       dailyBlocked: {},
+      taskColors: {},
     };
   }
 }
